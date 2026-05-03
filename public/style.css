@@ -139,3 +139,85 @@ body { background: var(--bg); color: var(--text); font-family: system-ui, sans-s
   .players-sidebar .player-list { flex-direction: row; flex-wrap: wrap; }
   .action-panel { border-left: none; border-top: 1px solid var(--border); max-height: 200px; }
 }
+
+/* ── Navigation landing (index.html) ── */
+.nav-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 2rem; gap: 2.5rem; }
+.nav-hero { text-align: center; }
+.nav-hero .logo { font-size: 2.8rem; margin-bottom: 0.4rem; }
+.nav-hero .tagline { color: var(--muted); font-size: 1rem; }
+.nav-cards { display: flex; gap: 1.25rem; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 800px; }
+.nav-card { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem 1.5rem; width: 220px; text-decoration: none; color: var(--text); transition: border-color 0.15s, transform 0.15s; cursor: pointer; }
+.nav-card:hover { transform: translateY(-3px); }
+.nav-card--admin:hover { border-color: var(--primary); }
+.nav-card--join:hover { border-color: var(--success); }
+.nav-card--player:hover { border-color: var(--day-color); }
+.nav-card__icon { font-size: 2.5rem; }
+.nav-card__label { font-size: 1.2rem; font-weight: 700; }
+.nav-card__desc { font-size: 0.8rem; color: var(--muted); text-align: center; line-height: 1.4; }
+
+/* ── Shared centered page layout ── */
+.centered-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1.5rem; }
+.back-link { align-self: flex-start; color: var(--muted); text-decoration: none; font-size: 0.9rem; margin-bottom: 1.5rem; }
+.back-link:hover { color: var(--text); }
+.form-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; max-width: 420px; width: 100%; display: flex; flex-direction: column; gap: 1rem; }
+.form-card h1 { font-size: 1.5rem; }
+.form-card__sub { color: var(--muted); font-size: 0.9rem; }
+.field-label { font-size: 0.85rem; color: var(--muted); }
+.btn-block { width: 100%; }
+.section-heading { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 0.5rem; }
+.muted { color: var(--muted); }
+
+/* ── Join page ── */
+.timer-row { display: flex; flex-direction: column; gap: 0.5rem; }
+.timer-row input[type=range] { accent-color: var(--primary); }
+
+/* ── Player page ── */
+.game-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.game-page.hidden { display: none; }
+
+/* Role reveal */
+.role-reveal-card { background: var(--surface); border: 2px solid var(--border); border-radius: 16px; padding: 2.5rem 2rem; max-width: 380px; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 1rem; text-align: center; }
+.role-reveal-card--werewolf { border-color: var(--wolf-color); }
+.role-reveal-card--villager { border-color: var(--villager-color); }
+.role-reveal-icon { font-size: 4rem; }
+.role-reveal-title { font-size: 1.6rem; font-weight: 700; }
+.role-reveal-card--werewolf .role-reveal-title { color: var(--wolf-color); }
+.role-reveal-card--villager .role-reveal-title { color: var(--villager-color); }
+.role-reveal-flavor { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+
+/* ── Admin page ── */
+.admin-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+.admin-page.hidden { display: none; }
+.admin-header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.75rem 1.25rem; display: flex; align-items: center; gap: 1rem; }
+.logo-sm { font-size: 1rem; font-weight: 700; }
+.game-id-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 99px; padding: 0.2rem 0.75rem; font-size: 0.85rem; font-family: monospace; letter-spacing: 0.1em; }
+.admin-header-actions { margin-left: auto; display: flex; gap: 0.5rem; }
+.admin-body { flex: 1; display: grid; grid-template-columns: 260px 1fr; overflow: hidden; }
+.admin-sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.5rem; }
+.admin-section { display: flex; flex-direction: column; gap: 0.5rem; }
+.admin-main { padding: 1.25rem; overflow-y: auto; }
+.qr-img { width: 160px; height: 160px; border-radius: 8px; background: #fff; border: 3px solid var(--border); }
+.join-url-area { display: flex; align-items: center; gap: 0.5rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.6rem; }
+.join-url-text { font-size: 0.75rem; color: var(--muted); word-break: break-all; flex: 1; }
+.lobby-timers input[type=range] { width: 100%; accent-color: var(--primary); }
+
+/* Player grid (admin game view) */
+.player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem; }
+.player-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 0.75rem; display: flex; flex-direction: column; gap: 0.3rem; align-items: center; text-align: center; }
+.player-card--werewolf { border-color: var(--wolf-color); background: rgba(239,68,68,0.07); }
+.player-card--villager { border-color: var(--border); }
+.player-card--dead { opacity: 0.45; }
+.player-card__name { font-weight: 600; font-size: 0.95rem; }
+.player-card__role { font-size: 0.8rem; color: var(--muted); }
+.player-card--werewolf .player-card__role { color: var(--wolf-color); }
+.player-card__status { font-size: 0.75rem; color: var(--muted); }
+
+/* Event log */
+.event-log { display: flex; flex-direction: column; gap: 0.3rem; max-height: 300px; overflow-y: auto; }
+.log-entry { font-size: 0.8rem; color: var(--muted); padding: 0.2rem 0; border-bottom: 1px solid var(--border); }
+
+/* Player list variants */
+.player-list--large li { font-size: 1rem; padding: 0.35rem 0; }
+
+/* Lobby hint */
+.hint { font-size: 0.8rem; color: var(--muted); }

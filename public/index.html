@@ -7,165 +7,28 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div id="app">
-
-    <!-- LANDING -->
-    <div id="screen-landing" class="screen active">
-      <div class="landing-box">
-        <h1 class="logo">🐺 Werewolfware</h1>
-        <p class="tagline">Deceive. Vote. Survive.</p>
-        <div class="btn-group">
-          <button id="btn-create-game" class="btn btn-primary">Create Game (Host)</button>
-          <button id="btn-show-join" class="btn btn-secondary">Join Game</button>
-        </div>
-        <div id="join-form" class="hidden">
-          <input id="join-game-id" type="text" maxlength="6" placeholder="Game ID" class="input" />
-          <input id="join-player-name" type="text" maxlength="20" placeholder="Your name" class="input" />
-          <button id="btn-join-submit" class="btn btn-primary">Join</button>
-        </div>
-        <p id="landing-error" class="error hidden"></p>
-      </div>
+  <div class="nav-page">
+    <div class="nav-hero">
+      <h1 class="logo">🐺 Werewolfware</h1>
+      <p class="tagline">Deceive. Vote. Survive.</p>
     </div>
-
-    <!-- HOST SETUP -->
-    <div id="screen-host-setup" class="screen hidden">
-      <div class="setup-box">
-        <h2>Create Game</h2>
-        <input id="host-name" type="text" maxlength="20" placeholder="Your name (host)" class="input" />
-        <div class="timer-row">
-          <label>Day duration: <span id="day-label">120s</span>
-            <input id="day-slider" type="range" min="30" max="300" step="10" value="120" />
-          </label>
-          <label>Night duration: <span id="night-label">60s</span>
-            <input id="night-slider" type="range" min="30" max="300" step="10" value="60" />
-          </label>
-        </div>
-        <button id="btn-confirm-create" class="btn btn-primary">Create &amp; Get QR Code</button>
-        <p id="setup-error" class="error hidden"></p>
-      </div>
+    <div class="nav-cards">
+      <a href="/admin" class="nav-card nav-card--admin">
+        <div class="nav-card__icon">⚙️</div>
+        <div class="nav-card__label">Admin</div>
+        <div class="nav-card__desc">Create &amp; host a game. Set timers, assign roles, control the flow.</div>
+      </a>
+      <a href="/join" class="nav-card nav-card--join">
+        <div class="nav-card__icon">🔗</div>
+        <div class="nav-card__label">Join</div>
+        <div class="nav-card__desc">Enter a game ID or scan a QR code to join a session.</div>
+      </a>
+      <a href="/player" class="nav-card nav-card--player">
+        <div class="nav-card__icon">🎮</div>
+        <div class="nav-card__label">Player</div>
+        <div class="nav-card__desc">Return to your game in progress. Resume your role and chat.</div>
+      </a>
     </div>
-
-    <!-- HOST LOBBY -->
-    <div id="screen-host-lobby" class="screen hidden">
-      <div class="lobby-box">
-        <h2>Game Lobby — <span id="lobby-game-id"></span></h2>
-        <div class="qr-area">
-          <img id="qr-code" src="" alt="QR Code" />
-          <div class="join-url-area">
-            <span id="join-url-text"></span>
-            <button id="btn-copy-url" class="btn btn-sm">Copy</button>
-          </div>
-        </div>
-        <div class="lobby-timers">
-          <label>Day: <span id="lobby-day-label">120s</span>
-            <input id="lobby-day-slider" type="range" min="30" max="300" step="10" value="120" />
-          </label>
-          <label>Night: <span id="lobby-night-label">60s</span>
-            <input id="lobby-night-slider" type="range" min="30" max="300" step="10" value="60" />
-          </label>
-        </div>
-        <h3>Players (<span id="lobby-count">0</span>)</h3>
-        <ul id="lobby-player-list" class="player-list"></ul>
-        <button id="btn-start-game" class="btn btn-primary" disabled>Start Game (need 3+)</button>
-        <p id="lobby-error" class="error hidden"></p>
-      </div>
-    </div>
-
-    <!-- PLAYER LOBBY -->
-    <div id="screen-player-lobby" class="screen hidden">
-      <div class="lobby-box">
-        <h2>Waiting for host…</h2>
-        <p>Game: <strong id="player-lobby-game-id"></strong></p>
-        <h3>Players (<span id="player-lobby-count">0</span>)</h3>
-        <ul id="player-lobby-list" class="player-list"></ul>
-      </div>
-    </div>
-
-    <!-- GAME -->
-    <div id="screen-game" class="screen hidden">
-      <header class="game-header">
-        <div id="phase-badge" class="phase-badge">Day</div>
-        <div id="phase-timer" class="phase-timer">--</div>
-        <div id="my-role-badge" class="role-badge"></div>
-        <button id="btn-advance-phase" class="btn btn-sm host-only hidden">Skip Phase</button>
-      </header>
-
-      <div class="game-body">
-        <!-- Players sidebar -->
-        <aside class="players-sidebar">
-          <h3>Players</h3>
-          <ul id="game-player-list" class="player-list"></ul>
-        </aside>
-
-        <!-- Chat area -->
-        <main class="chat-area">
-          <div class="chat-tabs">
-            <button class="tab-btn active" data-room="main">Town Square</button>
-            <button class="tab-btn hidden" id="tab-dead" data-room="dead">Beyond the Grave</button>
-            <button class="tab-btn hidden" id="tab-wolf" data-room="werewolf">Wolf Den</button>
-          </div>
-          <div id="chat-main" class="chat-panel active">
-            <div id="messages-main" class="messages"></div>
-            <div class="chat-input-row">
-              <input id="input-main" type="text" maxlength="500" placeholder="Say something…" class="input" />
-              <button class="btn btn-primary btn-send" data-room="main">Send</button>
-            </div>
-          </div>
-          <div id="chat-dead" class="chat-panel hidden">
-            <div id="messages-dead" class="messages"></div>
-            <div class="chat-input-row">
-              <input id="input-dead" type="text" maxlength="500" placeholder="Chat with the fallen…" class="input" />
-              <button class="btn btn-primary btn-send" data-room="dead">Send</button>
-            </div>
-          </div>
-          <div id="chat-werewolf" class="chat-panel hidden">
-            <div id="messages-werewolf" class="messages"></div>
-            <div class="chat-input-row">
-              <input id="input-werewolf" type="text" maxlength="500" placeholder="Coordinate the hunt…" class="input" />
-              <button class="btn btn-primary btn-send" data-room="werewolf">Send</button>
-            </div>
-          </div>
-        </main>
-
-        <!-- Action panel -->
-        <aside class="action-panel">
-          <!-- Day: vote -->
-          <div id="panel-vote" class="action-section hidden">
-            <h3>Vote to Eliminate</h3>
-            <p class="hint">Majority required to eliminate. Ties spare everyone.</p>
-            <ul id="vote-list" class="vote-list"></ul>
-            <div id="vote-tally" class="vote-tally"></div>
-          </div>
-          <!-- Night: werewolf target -->
-          <div id="panel-wolf-kill" class="action-section hidden">
-            <h3>Choose Your Victim</h3>
-            <p class="hint">Select a villager to eliminate tonight.</p>
-            <ul id="kill-list" class="vote-list"></ul>
-          </div>
-          <!-- Night: villager waiting -->
-          <div id="panel-night-wait" class="action-section hidden">
-            <p class="flavor">🌙 Night falls…<br/>The wolves are hunting.</p>
-          </div>
-        </aside>
-      </div>
-    </div>
-
-    <!-- ENDED -->
-    <div id="screen-ended" class="screen hidden">
-      <div class="ended-box">
-        <div id="winner-banner" class="winner-banner"></div>
-        <h2>Role Reveal</h2>
-        <table id="role-reveal-table" class="role-table">
-          <thead><tr><th>Player</th><th>Role</th><th>Status</th></tr></thead>
-          <tbody id="role-reveal-body"></tbody>
-        </table>
-        <button id="btn-play-again" class="btn btn-primary">Play Again</button>
-      </div>
-    </div>
-
   </div>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/client.js" type="module"></script>
 </body>
 </html>

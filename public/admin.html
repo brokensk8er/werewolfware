@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — Werewolfware</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- SETUP: before game is created -->
+  <div id="screen-setup" class="centered-page">
+    <a href="/" class="back-link">← Werewolfware</a>
+    <div class="form-card">
+      <h1>Create a Game</h1>
+      <p class="form-card__sub">You'll be the game master. Players scan your QR code to join.</p>
+      <label class="field-label" for="host-name">Your Name (Host)</label>
+      <input id="host-name" class="input" type="text" maxlength="20" placeholder="e.g. The Narrator" />
+      <div class="timer-row">
+        <label class="field-label">Day duration — <span id="day-label">120s</span></label>
+        <input id="day-slider" type="range" min="30" max="300" step="10" value="120" />
+        <label class="field-label">Night duration — <span id="night-label">60s</span></label>
+        <input id="night-slider" type="range" min="30" max="300" step="10" value="60" />
+      </div>
+      <button id="btn-create" class="btn btn-primary btn-block">Create Game</button>
+      <p id="setup-error" class="error hidden"></p>
+    </div>
+  </div>
+
+  <!-- LOBBY: game created, waiting for players -->
+  <div id="screen-lobby" class="admin-page hidden">
+    <header class="admin-header">
+      <span class="logo-sm">🐺 Werewolfware</span>
+      <span id="admin-game-id" class="game-id-chip"></span>
+      <div class="admin-header-actions">
+        <button id="btn-start" class="btn btn-primary" disabled>Start Game</button>
+      </div>
+    </header>
+
+    <div class="admin-body">
+      <aside class="admin-sidebar">
+        <section class="admin-section">
+          <h3 class="section-heading">QR Code</h3>
+          <img id="qr-code" src="" alt="QR Code" class="qr-img" />
+          <div class="join-url-area">
+            <span id="join-url-text" class="join-url-text"></span>
+            <button id="btn-copy-url" class="btn btn-sm btn-secondary">Copy</button>
+          </div>
+        </section>
+        <section class="admin-section">
+          <h3 class="section-heading">Timers</h3>
+          <label class="field-label">Day — <span id="lobby-day-label">120s</span></label>
+          <input id="lobby-day-slider" type="range" min="30" max="300" step="10" value="120" />
+          <label class="field-label">Night — <span id="lobby-night-label">60s</span></label>
+          <input id="lobby-night-slider" type="range" min="30" max="300" step="10" value="60" />
+        </section>
+      </aside>
+
+      <main class="admin-main">
+        <h2 class="section-heading">Players (<span id="lobby-count">0</span>)</h2>
+        <ul id="lobby-player-list" class="player-list player-list--large"></ul>
+        <p class="hint" id="lobby-hint">Need at least 3 players to start.</p>
+      </main>
+    </div>
+  </div>
+
+  <!-- GAME: in progress -->
+  <div id="screen-game" class="admin-page hidden">
+    <header class="admin-header">
+      <span class="logo-sm">🐺 Werewolfware</span>
+      <div id="admin-phase-badge" class="phase-badge day">☀️ Day</div>
+      <div id="admin-phase-timer" class="phase-timer">--</div>
+      <div class="admin-header-actions">
+        <button id="btn-advance" class="btn btn-sm btn-secondary">Skip Phase</button>
+      </div>
+    </header>
+
+    <div class="admin-body">
+      <main class="admin-main">
+        <h2 class="section-heading">Players</h2>
+        <div id="player-grid" class="player-grid"></div>
+      </main>
+
+      <aside class="admin-sidebar">
+        <section class="admin-section">
+          <h3 class="section-heading">Event Log</h3>
+          <div id="event-log" class="event-log"></div>
+        </section>
+        <section class="admin-section">
+          <h3 class="section-heading">Vote Tally</h3>
+          <div id="admin-vote-tally" class="vote-tally"></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <!-- ENDED -->
+  <div id="screen-ended" class="centered-page hidden">
+    <div class="ended-box">
+      <div id="winner-banner" class="winner-banner"></div>
+      <h2>Role Reveal</h2>
+      <table class="role-table">
+        <thead><tr><th>Player</th><th>Role</th><th>Status</th></tr></thead>
+        <tbody id="role-reveal-body"></tbody>
+      </table>
+      <button id="btn-new-game" class="btn btn-primary btn-block">New Game</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/admin.js"></script>
+</body>
+</html>

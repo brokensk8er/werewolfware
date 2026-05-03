@@ -25,7 +25,7 @@ function getServerHost() {
 export async function createGame(hostSocketId, hostName, { dayDuration = 120000, nightDuration = 60000 } = {}) {
   const id = crypto.randomBytes(3).toString('hex').toUpperCase();
   const port = process.env.PORT || 3000;
-  const joinUrl = `http://${getServerHost()}:${port}/?join=${id}`;
+  const joinUrl = `http://${getServerHost()}:${port}/join?game=${id}`;
   const qrDataUrl = await qrcode.toDataURL(joinUrl);
 
   const host = { socketId: hostSocketId, name: hostName, role: null, isAlive: true, isHost: true };
@@ -50,13 +50,29 @@ export async function createGame(hostSocketId, hostName, { dayDuration = 120000,
 export function joinGame(gameId, socketId, playerName) {
   const game = games.get(gameId);
   if (!game) return { error: 'Game not found' };
-  if (game.phase !== 'lobby') return { error: 'Game already in progress' };
-  if ([...game.players.values()].find(p => p.name === playerName)) {
-    return { error: 'Name already taken' };
+  if (game.phase === 'ended') return { error: 'Game has ended' };
+
+  // Reconnect: player with this name already exists — update their socket ID
+  const existing = [...game.players.values()].find(p => p.name === playerName);
+  if (existing) {
+    game.players.delete(existing.socketId);
+    if (game.hostSocketId === existing.socketId) game.hostSocketId = socketId;
+    existing.socketId = socketId;
+    game.players.set(socketId, existing);
+    return { player: existing, game, reconnected: true };
   }
-  const player = { socketId, name: playerName, role: null, isAlive: true, isHost: false };
+
+  // New player joining a lobby
+  if (game.phase === 'lobby') {
+    const player = { socketId, name: playerName, role: null, isAlive: true, isHost: false };
+    game.players.set(socketId, player);
+    return { player, game, reconnected: false };
+  }
+
+  // New player joining a game in progress — assigned villager role
+  const player = { socketId, name: playerName, role: 'villager', isAlive: true, isHost: false };
   game.players.set(socketId, player);
-  return { player, game };
+  return { player, game, reconnected: false, lateJoin: true };
 }
 
 export function startGame(gameId) {
@@ -256,6 +272,8 @@ export function getStateSnapshot(game, requestingSocketId) {
     name: p.name,
     isAlive: p.isAlive,
     isHost: p.isHost,
+    // expose role only for wolves so they can see fellow wolves
+    role: (me?.role === 'werewolf' && p.role === 'werewolf') ? 'werewolf' : undefined,
   }));
 
   const messages = { main: game.messages.main };
@@ -275,5 +293,24 @@ export function getStateSnapshot(game, requestingSocketId) {
     nightDuration: game.nightDuration,
     messages,
     winner: game.winner,
+  };
+}
+
+// Admin-only snapshot: exposes every player's role
+export function getAdminSnapshot(game) {
+  return {
+    gameId: game.id,
+    phase: game.phase,
+    phaseEndsAt: game.phaseEndsAt,
+    dayDuration: game.dayDuration,
+    nightDuration: game.nightDuration,
+    winner: game.winner,
+    players: [...game.players.values()].map(p => ({
+      socketId: p.socketId,
+      name: p.name,
+      role: p.role,
+      isAlive: p.isAlive,
+      isHost: p.isHost,
+    })),
   };
 }
