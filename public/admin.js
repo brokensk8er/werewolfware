@@ -52,11 +52,6 @@ document.getElementById('btn-create').addEventListener('click', () => {
 });
 
 // ---------- lobby ----------
-document.getElementById('btn-copy-url').addEventListener('click', () => {
-  navigator.clipboard.writeText(document.getElementById('join-url-text').textContent);
-  document.getElementById('btn-copy-url').textContent = 'Copied!';
-  setTimeout(() => { document.getElementById('btn-copy-url').textContent = 'Copy'; }, 2000);
-});
 
 document.getElementById('btn-start').addEventListener('click', () => {
   socket.emit('game:start');
@@ -149,9 +144,7 @@ document.getElementById('btn-new-game').addEventListener('click', () => {
 });
 
 // ---------- socket events ----------
-socket.on('game:created', ({ qrDataUrl, joinUrl }) => {
-  document.getElementById('qr-code').src = qrDataUrl;
-  document.getElementById('join-url-text').textContent = joinUrl;
+socket.on('game:created', () => {
   show('screen-lobby');
 });
 
