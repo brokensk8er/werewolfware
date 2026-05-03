@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import { randomUUID } from 'crypto';
 import os from 'os';
 import qrcode from 'qrcode';
 import { PhaseTimer } from './phaseTimer.js';
@@ -24,9 +24,9 @@ function getServerHost() {
 }
 
 export async function createGame(hostSocketId, hostName, { dayDuration = 120000, nightDuration = 60000 } = {}) {
-  const id = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const id = 'GAME';
   const port = process.env.PORT || 3000;
-  const joinUrl = `http://${getServerHost()}:${port}/join?game=${id}`;
+  const joinUrl = `http://${getServerHost()}:${port}/join`;
   const qrDataUrl = await qrcode.toDataURL(joinUrl);
 
   const host = { socketId: hostSocketId, name: hostName, role: null, isAlive: true, isHost: true };
@@ -132,7 +132,7 @@ export function addMessage(gameId, senderSocketId, room, text) {
   if (room === 'main' && !sender.isAlive) return { error: 'Dead players cannot use main chat' };
 
   const msg = {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     senderName: sender.name,
     senderId: senderSocketId,
     room,

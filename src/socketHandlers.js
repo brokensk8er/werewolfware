@@ -3,9 +3,8 @@ import * as gm from './gameManager.js';
 // Auth middleware stub — attaches identity from handshake to socket.data.
 // Replace next() logic here with Firebase ID token verification when auth is added.
 export function authMiddleware(socket, next) {
-  const { playerName, gameId, isAdmin } = socket.handshake.auth;
+  const { playerName, isAdmin } = socket.handshake.auth;
   socket.data.playerName = playerName || null;
-  socket.data.gameId = gameId || null;
   socket.data.isAdmin = !!isAdmin;
   next();
 }
@@ -24,9 +23,9 @@ export function registerHandlers(io, socket) {
   });
 
   // ---- game:join (player) ----
-  socket.on('game:join', ({ gameId, playerName }) => {
-    if (!gameId || !playerName?.trim()) return socket.emit('error', { code: 'INVALID', message: 'Game ID and name required' });
-    const result = gm.joinGame(gameId.toUpperCase(), socket.id, playerName.trim());
+  socket.on('game:join', ({ playerName }) => {
+    if (!playerName?.trim()) return socket.emit('error', { code: 'INVALID', message: 'Name required' });
+    const result = gm.joinGame('GAME', socket.id, playerName.trim());
     if (result.error) return socket.emit('error', { code: 'JOIN_FAILED', message: result.error });
 
     const { game, player, lateJoin } = result;
@@ -47,17 +46,17 @@ export function registerHandlers(io, socket) {
   });
 
   // ---- game:start (admin) ----
-  socket.on('game:start', ({ gameId }) => {
-    const game = gm.getGame(gameId);
+  socket.on('game:start', () => {
+    const game = gm.getGame('GAME');
     if (!game) return socket.emit('error', { code: 'NOT_FOUND', message: 'Game not found' });
     if (game.hostSocketId !== socket.id) return socket.emit('error', { code: 'FORBIDDEN', message: 'Only the host can start' });
-    const result = gm.startGame(gameId);
+    const result = gm.startGame('GAME');
     if (result.error) return socket.emit('error', { code: 'START_FAILED', message: result.error });
 
     for (const player of result.game.players.values()) {
       const playerSocket = io.sockets.sockets.get(player.socketId);
       if (playerSocket) {
-        if (player.role === 'werewolf') playerSocket.join(`game:${gameId}:werewolf`);
+        if (player.role === 'werewolf') playerSocket.join('game:GAME:werewolf');
         playerSocket.emit('game:started', {
           role: player.role,
           phase: result.game.phase,
@@ -68,40 +67,40 @@ export function registerHandlers(io, socket) {
     }
 
     // Send admin the full role-aware snapshot
-    io.to(`game:${gameId}:admin`).emit('admin:state', gm.getAdminSnapshot(result.game));
+    io.to('game:GAME:admin').emit('admin:state', gm.getAdminSnapshot(result.game));
   });
 
   // ---- game:advancePhase (admin) ----
-  socket.on('game:advancePhase', ({ gameId }) => {
-    const game = gm.getGame(gameId);
+  socket.on('game:advancePhase', () => {
+    const game = gm.getGame('GAME');
     if (!game) return socket.emit('error', { code: 'NOT_FOUND', message: 'Game not found' });
     if (game.hostSocketId !== socket.id) return socket.emit('error', { code: 'FORBIDDEN', message: 'Only the host can advance phase' });
-    gm.advancePhase(gameId);
+    gm.advancePhase('GAME');
   });
 
   // ---- game:setTimers (admin) ----
-  socket.on('game:setTimers', ({ gameId, dayDuration, nightDuration }) => {
-    const game = gm.getGame(gameId);
+  socket.on('game:setTimers', ({ dayDuration, nightDuration }) => {
+    const game = gm.getGame('GAME');
     if (!game) return socket.emit('error', { code: 'NOT_FOUND', message: 'Game not found' });
     if (game.hostSocketId !== socket.id) return socket.emit('error', { code: 'FORBIDDEN', message: 'Only the host can change timers' });
-    gm.setTimers(gameId, dayDuration, nightDuration);
+    gm.setTimers('GAME', dayDuration, nightDuration);
   });
 
   // ---- vote:cast (player) ----
-  socket.on('vote:cast', ({ gameId, targetId }) => {
-    const result = gm.castVote(gameId, socket.id, targetId);
+  socket.on('vote:cast', ({ targetId }) => {
+    const result = gm.castVote('GAME', socket.id, targetId);
     if (result.error) return socket.emit('error', { code: 'VOTE_FAILED', message: result.error });
     const tally = _buildVoteTally(result.game);
-    io.to(`game:${gameId}:all`).emit('vote:updated', { votes: tally });
-    io.to(`game:${gameId}:admin`).emit('vote:updated', { votes: tally });
+    io.to('game:GAME:all').emit('vote:updated', { votes: tally });
+    io.to('game:GAME:admin').emit('vote:updated', { votes: tally });
   });
 
   // ---- werewolf:target (player) ----
-  socket.on('werewolf:target', ({ gameId, targetId }) => {
-    const result = gm.setWerewolfTarget(gameId, socket.id, targetId);
+  socket.on('werewolf:target', ({ targetId }) => {
+    const result = gm.setWerewolfTarget('GAME', socket.id, targetId);
     if (result.error) return socket.emit('error', { code: 'TARGET_FAILED', message: result.error });
-    const wolf = gm.getPlayer(gameId, socket.id);
-    io.to(`game:${gameId}:werewolf`).emit('werewolf:targetSelected', {
+    const wolf = gm.getPlayer('GAME', socket.id);
+    io.to('game:GAME:werewolf').emit('werewolf:targetSelected', {
       byName: wolf.name,
       targetId,
       targetName: result.game.players.get(targetId)?.name,
@@ -109,12 +108,12 @@ export function registerHandlers(io, socket) {
   });
 
   // ---- chat:send ----
-  socket.on('chat:send', ({ gameId, room, text }) => {
+  socket.on('chat:send', ({ room, text }) => {
     if (!text?.trim()) return;
     if (!['main', 'dead', 'werewolf'].includes(room)) return socket.emit('error', { code: 'INVALID', message: 'Invalid chat room' });
-    const result = gm.addMessage(gameId, socket.id, room, text);
+    const result = gm.addMessage('GAME', socket.id, room, text);
     if (result.error) return socket.emit('error', { code: 'CHAT_FAILED', message: result.error });
-    io.to(`game:${gameId}:${room}`).emit('chat:message', result.message);
+    io.to(`game:GAME:${room}`).emit('chat:message', result.message);
   });
 
   // ---- disconnect ----
