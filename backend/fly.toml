@@ -1,0 +1,23 @@
+# Fly.io configuration for Werewolf backend
+app = "werewolf-game"
+primary_region = "sjc"
+
+[build]
+builder = "heroku"
+
+[env]
+NODE_ENV = "production"
+PORT = "3000"
+
+[http_service]
+internal_port = 3000
+force_https = false
+
+[[vm]]
+memory = "256mb"
+cpu_kind = "shared"
+cpus = 1
+
+[[statics]]
+guest_path = "/app/frontend"
+url_path = "/static"
