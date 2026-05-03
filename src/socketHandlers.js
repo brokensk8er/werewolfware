@@ -13,12 +13,13 @@ export function registerHandlers(io, socket) {
   gm.init(io);
 
   // ---- game:create (admin) ----
-  socket.on('game:create', async ({ hostName, dayDuration, nightDuration }) => {
+  socket.on('game:create', ({ hostName, dayDuration, nightDuration }) => {
     if (!hostName?.trim()) return socket.emit('error', { code: 'INVALID', message: 'Name required' });
-    const { game, qrDataUrl, joinUrl } = await gm.createGame(socket.id, hostName.trim(), { dayDuration, nightDuration });
+    const { game } = gm.createGame(socket.id, hostName.trim(), { dayDuration, nightDuration });
     socket.join(`game:${game.id}:all`);
     socket.join(`game:${game.id}:admin`);
-    socket.emit('game:created', { gameId: game.id, qrDataUrl, joinUrl });
+    socket.emit('game:created');
+    io.to(`game:${game.id}:all`).emit('lobby:updated', { players: gm.getLobbyPlayers(game) });
     socket.emit('admin:state', gm.getAdminSnapshot(game));
   });
 

@@ -1,6 +1,4 @@
 import { randomUUID } from 'crypto';
-import os from 'os';
-import qrcode from 'qrcode';
 import { PhaseTimer } from './phaseTimer.js';
 import { checkWinCondition } from './roles.js';
 import { assignRoles } from './engine/roleRegistry.js';
@@ -12,23 +10,9 @@ export function init(io) {
   _io = io;
 }
 
-function getServerHost() {
-  if (process.env.HOST) return process.env.HOST;
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const iface of ifaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
-    }
-  }
-  return 'localhost';
-}
 
-export async function createGame(hostSocketId, hostName, { dayDuration = 120000, nightDuration = 60000 } = {}) {
+export function createGame(hostSocketId, hostName, { dayDuration = 120000, nightDuration = 60000 } = {}) {
   const id = 'GAME';
-  const port = process.env.PORT || 3000;
-  const joinUrl = `http://${getServerHost()}:${port}/join`;
-  const qrDataUrl = await qrcode.toDataURL(joinUrl);
-
   const host = { socketId: hostSocketId, name: hostName, role: null, isAlive: true, isHost: true };
   const game = {
     id,
@@ -45,7 +29,7 @@ export async function createGame(hostSocketId, hostName, { dayDuration = 120000,
     messages: { main: [], dead: [], werewolf: [] },
   };
   games.set(id, game);
-  return { game, qrDataUrl, joinUrl };
+  return { game };
 }
 
 export function joinGame(gameId, socketId, playerName) {
