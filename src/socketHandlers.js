@@ -87,6 +87,17 @@ export function registerHandlers(io, socket) {
     gm.setTimers('GAME', dayDuration, nightDuration);
   });
 
+  // ---- admin:addDummyPlayers (admin) ----
+  socket.on('admin:addDummyPlayers', ({ count }) => {
+    const game = gm.getGame('GAME');
+    if (!game) return socket.emit('error', { code: 'NOT_FOUND', message: 'Game not found' });
+    if (game.hostSocketId !== socket.id) return socket.emit('error', { code: 'FORBIDDEN', message: 'Only the host can add dummy players' });
+    const result = gm.addDummyPlayers('GAME', count);
+    if (result.error) return socket.emit('error', { code: 'ADD_DUMMY_FAILED', message: result.error });
+    io.to(`game:${game.id}:all`).emit('lobby:updated', { players: gm.getLobbyPlayers(result.game) });
+    io.to(`game:${game.id}:admin`).emit('admin:state', gm.getAdminSnapshot(result.game));
+  });
+
   // ---- vote:cast (player) ----
   socket.on('vote:cast', ({ targetId }) => {
     const result = gm.castVote('GAME', socket.id, targetId);

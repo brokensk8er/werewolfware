@@ -32,6 +32,33 @@ export function createGame(hostSocketId, hostName, { dayDuration = 120000, night
   return { game };
 }
 
+export function addDummyPlayers(gameId, count = 1) {
+  const game = games.get(gameId);
+  if (!game) return { error: 'Game not found' };
+  if (game.phase !== 'lobby') return { error: 'Cannot add dummy players after the game has started' };
+  if (count <= 0) return { error: 'Count must be at least 1' };
+
+  const existingNames = new Set([...game.players.values()].map(p => p.name));
+  const playersCreated = [];
+
+  for (let i = 0; i < count; i++) {
+    const socketId = `dummy-${randomUUID()}`;
+    let nameIndex = 1;
+    let name = `Dummy ${nameIndex}`;
+    while (existingNames.has(name)) {
+      nameIndex += 1;
+      name = `Dummy ${nameIndex}`;
+    }
+    existingNames.add(name);
+
+    const player = { socketId, name, role: null, isAlive: true, isHost: false };
+    game.players.set(socketId, player);
+    playersCreated.push(player);
+  }
+
+  return { game, playersCreated };
+}
+
 export function joinGame(gameId, socketId, playerName) {
   const game = games.get(gameId);
   if (!game) return { error: 'Game not found' };

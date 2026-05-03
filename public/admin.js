@@ -57,6 +57,11 @@ document.getElementById('btn-start').addEventListener('click', () => {
   socket.emit('game:start');
 });
 
+document.getElementById('btn-add-dummies').addEventListener('click', () => {
+  const count = state.players.length < 3 ? 3 - state.players.length : 2;
+  socket.emit('admin:addDummyPlayers', { count });
+});
+
 document.getElementById('lobby-day-slider').addEventListener('input', e => {
   document.getElementById('lobby-day-label').textContent = e.target.value + 's';
   emitTimers();
