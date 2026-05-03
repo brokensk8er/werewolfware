@@ -26,6 +26,7 @@ export class GameManager {
       nightActions: new Map(),
       protectedPlayers: new Set(),
       seerInvestigations: new Map(),
+      chatMessages: [],
     };
     this.games.set(roomCode, game);
     return game;
@@ -79,6 +80,55 @@ export class GameManager {
     const game = this.games.get(roomCode);
     if (!game) return;
     game.nightActions.set(playerId, { playerId, targetId });
+  }
+
+  resolveDay(roomCode: string): { eliminated: Player | null; voteCount: number } {
+    const game = this.games.get(roomCode);
+    if (!game || game.phase !== 'day') return { eliminated: null, voteCount: 0 };
+
+    // Tally votes
+    const voteTally = new Map<string, number>();
+    for (const targetId of game.dayVotes.values()) {
+      voteTally.set(targetId, (voteTally.get(targetId) || 0) + 1);
+    }
+
+    // Find player with most votes
+    let maxVotes = 0;
+    let eliminatedId: string | null = null;
+    for (const [targetId, votes] of voteTally) {
+      if (votes > maxVotes) {
+        maxVotes = votes;
+        eliminatedId = targetId;
+      }
+    }
+
+    // Eliminate if votes > 0
+    let eliminated: Player | null = null;
+    if (eliminatedId && maxVotes > 0) {
+      const target = game.players.get(eliminatedId);
+      if (target && target.alive) {
+        target.alive = false;
+        eliminated = target;
+        target.role.onDeath?.(game, target);
+      }
+    }
+
+    // Clear votes for next day
+    game.dayVotes.clear();
+
+    return { eliminated, voteCount: maxVotes };
+  }
+
+  addChatMessage(roomCode: string, senderId: string, senderName: string, text: string): void {
+    const game = this.games.get(roomCode);
+    if (!game) return;
+
+    game.chatMessages.push({
+      senderId,
+      senderName,
+      text,
+      timestamp: new Date(),
+    });
   }
 
   resolveNight(roomCode: string): { eliminated: Player[]; investigations: any[] } {

@@ -147,9 +147,21 @@ io.on('connection', (socket) => {
       }
     }
 
-    // Clear votes before transitioning
+    // If ending day phase, resolve votes
     if (game.phase === 'day') {
-      game.dayVotes.clear();
+      const { eliminated, voteCount } = gameManager.resolveDay(roomCode);
+      if (eliminated) {
+        io.to(roomCode).emit('vote:result', {
+          eliminated: eliminated.id,
+          eliminatedName: eliminated.name,
+          voteCount,
+        });
+        io.to(roomCode).emit('player:eliminated', {
+          playerId: eliminated.id,
+          playerName: eliminated.name,
+          role: eliminated.role.name,
+        });
+      }
     }
 
     // Advance to next phase
@@ -187,8 +199,22 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const voter = game.players.get(socket.id);
+    if (!voter) return;
+
     gameManager.castVote(roomCode, socket.id, data.targetId);
-    console.log(`Player ${socket.id} voted for ${data.targetId}`);
+    const target = game.players.get(data.targetId);
+
+    // Broadcast updated vote tally
+    const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+      voterId,
+      voterName: game.players.get(voterId)?.name || 'Unknown',
+      targetId,
+      targetName: game.players.get(targetId)?.name || 'Unknown',
+    }));
+
+    io.to(roomCode).emit('vote:updated', { votes });
+    console.log(`${voter.name} voted for ${target?.name}`);
   });
 
   socket.on('night:action', (data) => {
@@ -213,6 +239,31 @@ io.on('connection', (socket) => {
     gameManager.recordNightAction(roomCode, socket.id, data.targetId);
     socket.emit('night:actionRecorded', { targetId: data.targetId });
     console.log(`${player.role.name} ${player.name} targeted ${game.players.get(data.targetId)?.name}`);
+  });
+
+  socket.on('chat:send', (data) => {
+    const roomCode = getRoomCode(socket);
+    if (!roomCode) {
+      socket.emit('error', { message: 'Not in a room' });
+      return;
+    }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    const sender = game.players.get(socket.id);
+    if (!sender) return;
+
+    const message = {
+      senderId: socket.id,
+      senderName: sender.name,
+      text: data.text,
+      timestamp: new Date(),
+    };
+
+    gameManager.addChatMessage(roomCode, socket.id, sender.name, data.text);
+    io.to(roomCode).emit('chat:message', message);
+    console.log(`${sender.name}: ${data.text}`);
   });
 
   socket.on('disconnect', () => {

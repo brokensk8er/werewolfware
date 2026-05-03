@@ -1,3 +1,15 @@
+// Utility to prevent XSS
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;',
+  };
+  return text.replace(/[&<>"']/g, (m) => map[m]);
+}
+
 // Socket.io client
 const socket = io();
 
@@ -56,6 +68,19 @@ const hostControls = document.getElementById('host-controls');
 const advancePhaseBtn = document.getElementById('advance-phase-btn');
 advancePhaseBtn.addEventListener('click', () => {
   socket.emit('game:advancePhase');
+});
+
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const chatSendBtn = document.getElementById('chat-send-btn');
+chatSendBtn.addEventListener('click', () => {
+  if (!chatInput.value.trim()) return;
+  socket.emit('chat:send', { text: chatInput.value });
+  chatInput.value = '';
+});
+
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') chatSendBtn.click();
 });
 
 // Event listeners
@@ -159,6 +184,39 @@ socket.on('night:actionRecorded', (data) => {
   showError(`Action recorded on ${target?.name}`);
 });
 
+socket.on('vote:updated', (data) => {
+  // Update vote display in real-time
+  const voteMap = new Map();
+  for (const vote of data.votes) {
+    if (!voteMap.has(vote.targetId)) {
+      voteMap.set(vote.targetId, { name: vote.targetName, count: 0 });
+    }
+    voteMap.get(vote.targetId).count++;
+  }
+
+  // Update vote cards with vote counts
+  const cards = document.querySelectorAll('#vote-list .player-card');
+  cards.forEach((card) => {
+    const playerId = card.dataset.playerId;
+    const voteInfo = voteMap.get(playerId);
+    if (voteInfo) {
+      card.innerHTML = `${card.textContent.split(' ')[0]}<br><small>(${voteInfo.count} vote${voteInfo.count !== 1 ? 's' : ''})</small>`;
+    }
+  });
+});
+
+socket.on('vote:result', (data) => {
+  showError(`${data.eliminatedName} was voted out with ${data.voteCount} votes!`);
+});
+
+socket.on('chat:message', (data) => {
+  const msgEl = document.createElement('div');
+  msgEl.className = 'chat-message';
+  msgEl.innerHTML = `<strong>${data.senderName}:</strong> ${escapeHtml(data.text)}`;
+  chatMessages.appendChild(msgEl);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+});
+
 socket.on('game:ended', (data) => {
   showGameEnded(data.winner, data.winReason);
 });
@@ -258,10 +316,16 @@ function startTimer(seconds) {
 function renderVoteList() {
   voteList.innerHTML = '';
   gameState.players.forEach((player) => {
+    if (!player.alive) return; // Only show alive players
     const card = document.createElement('div');
     card.className = 'player-card alive';
+    card.dataset.playerId = player.id;
     card.textContent = player.name;
     card.addEventListener('click', () => {
+      // Clear previous selection
+      document.querySelectorAll('#vote-list .player-card').forEach((c) => {
+        c.classList.remove('selected');
+      });
       socket.emit('vote:cast', { targetId: player.id });
       card.classList.add('selected');
     });

@@ -189,6 +189,64 @@ h3 {
   background: var(--primary);
 }
 
+/* Game bottom sections */
+.game-bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.chat-box {
+  padding: 1rem;
+  background: #222;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 400px;
+}
+
+.chat-box h3 {
+  margin-bottom: 0.5rem;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-message {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #333;
+  font-size: 0.9rem;
+}
+
+.chat-message:last-child {
+  border-bottom: none;
+}
+
+.chat-message strong {
+  color: var(--primary);
+}
+
+.chat-input-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-input-group input {
+  flex: 1;
+  padding: 0.5rem;
+}
+
+.chat-input-group button {
+  margin: 0;
+}
+
 /* Game phase content */
 .header {
   display: flex;

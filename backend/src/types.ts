@@ -11,6 +11,13 @@ export interface Player {
   socketId?: string;
 }
 
+export interface ChatMessage {
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: Date;
+}
+
 export interface GameState {
   roomCode: string;
   hostId: string;
@@ -27,6 +34,7 @@ export interface GameState {
   nightActions: Map<string, { playerId: string; targetId: string }>;
   protectedPlayers: Set<string>; // playerIds protected by doctor
   seerInvestigations: Map<string, { seerId: string; targetId: string; role: Role }>;
+  chatMessages: ChatMessage[]; // town square chat
 }
 
 // Role interface
@@ -61,6 +69,7 @@ export interface ClientEvents {
   'game:setMode': (data: { modeId: string }) => void;
   'vote:cast': (data: { targetId: string }) => void;
   'night:action': (data: { targetId: string }) => void;
+  'chat:send': (data: { text: string }) => void;
 }
 
 // Socket.io events (server -> client)
@@ -81,6 +90,15 @@ export interface ServerEvents {
   }) => void;
   'seer:investigation': (data: { targetName: string; role: string }) => void;
   'night:actionRecorded': (data: { targetId: string }) => void;
+  'vote:updated': (data: {
+    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
+  }) => void;
+  'vote:result': (data: {
+    eliminated: string;
+    eliminatedName: string;
+    voteCount: number;
+  }) => void;
+  'chat:message': (data: ChatMessage) => void;
   'game:ended': (data: { winner: PlayerTeam; winReason: string }) => void;
   error: (data: { message: string }) => void;
 }
