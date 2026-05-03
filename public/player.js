@@ -1,19 +1,10 @@
 // ---------- identity guard ----------
-const params = new URLSearchParams(location.search);
-const gameId = (params.get('game') || sessionStorage.getItem('ww_game') || '').toUpperCase();
 const playerName = sessionStorage.getItem('ww_name');
 
-if (!playerName || !gameId) {
-  const dest = gameId ? `/join?game=${gameId}` : '/join';
-  window.location.href = dest;
-}
-
-// Persist in case they arrived via URL param only
-if (gameId) sessionStorage.setItem('ww_game', gameId);
+if (!playerName) window.location.href = '/join';
 
 // ---------- state ----------
 let state = {
-  gameId,
   myName: playerName,
   myRole: null,
   isAlive: true,
@@ -25,7 +16,7 @@ let state = {
 };
 
 // ---------- socket ----------
-const socket = io({ auth: { playerName, gameId } });
+const socket = io({ auth: { playerName } });
 
 // ---------- screen helpers ----------
 function show(id) {
@@ -45,7 +36,6 @@ function showError(msg) {
 
 // ---------- lobby ----------
 function renderLobby(players) {
-  document.getElementById('lobby-game-label').textContent = `Game: ${state.gameId}`;
   document.getElementById('lobby-count').textContent = players.length;
   document.getElementById('lobby-player-list').innerHTML = players.map(p =>
     `<li>${escHtml(p.name)}${p.isHost ? ' <span class="badge host">HOST</span>' : ''}</li>`
@@ -173,7 +163,7 @@ function sendChat(room) {
   const input = document.getElementById(`input-${room}`);
   const text = input.value.trim();
   if (!text) return;
-  socket.emit('chat:send', { gameId: state.gameId, room, text });
+  socket.emit('chat:send', { room, text });
   input.value = '';
 }
 
@@ -205,7 +195,7 @@ document.getElementById('vote-list').addEventListener('click', e => {
   const btn = e.target.closest('button[data-target]');
   if (!btn) return;
   state.myVote = btn.dataset.target;
-  socket.emit('vote:cast', { gameId: state.gameId, targetId: btn.dataset.target });
+  socket.emit('vote:cast', { targetId: btn.dataset.target });
   renderVoteList();
 });
 
@@ -213,7 +203,7 @@ document.getElementById('kill-list').addEventListener('click', e => {
   const btn = e.target.closest('button[data-target]');
   if (!btn) return;
   state.myKillTarget = btn.dataset.target;
-  socket.emit('werewolf:target', { gameId: state.gameId, targetId: btn.dataset.target });
+  socket.emit('werewolf:target', { targetId: btn.dataset.target });
   renderKillList();
 });
 
@@ -235,11 +225,10 @@ function showEndScreen({ winner, roles }) {
 
 // ---------- socket events ----------
 socket.on('connect', () => {
-  socket.emit('game:join', { gameId: state.gameId, playerName: state.myName });
+  socket.emit('game:join', { playerName: state.myName });
 });
 
 socket.on('game:state', snap => {
-  state.gameId = snap.gameId;
   state.myRole = snap.myRole;
   state.isAlive = snap.isAlive;
   state.phase = snap.phase;

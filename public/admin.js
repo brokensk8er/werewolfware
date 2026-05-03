@@ -1,6 +1,5 @@
 // ---------- state ----------
 let state = {
-  gameId: null,
   hostName: null,
   phase: null,
   phaseEndsAt: null,
@@ -60,7 +59,7 @@ document.getElementById('btn-copy-url').addEventListener('click', () => {
 });
 
 document.getElementById('btn-start').addEventListener('click', () => {
-  socket.emit('game:start', { gameId: state.gameId });
+  socket.emit('game:start');
 });
 
 document.getElementById('lobby-day-slider').addEventListener('input', e => {
@@ -74,7 +73,6 @@ document.getElementById('lobby-night-slider').addEventListener('input', e => {
 
 function emitTimers() {
   socket.emit('game:setTimers', {
-    gameId: state.gameId,
     dayDuration: parseInt(document.getElementById('lobby-day-slider').value) * 1000,
     nightDuration: parseInt(document.getElementById('lobby-night-slider').value) * 1000,
   });
@@ -94,7 +92,7 @@ function renderLobbyPlayers(players) {
 
 // ---------- game ----------
 document.getElementById('btn-advance').addEventListener('click', () => {
-  socket.emit('game:advancePhase', { gameId: state.gameId });
+  socket.emit('game:advancePhase');
 });
 
 function renderPlayerGrid(players) {
@@ -146,23 +144,18 @@ function showEndScreen({ winner, roles }) {
 }
 
 document.getElementById('btn-new-game').addEventListener('click', () => {
-  sessionStorage.removeItem('ww_admin_game');
-  state = { gameId: null, hostName: null, phase: null, phaseEndsAt: null, players: [] };
+  state = { hostName: null, phase: null, phaseEndsAt: null, players: [] };
   show('screen-setup');
 });
 
 // ---------- socket events ----------
-socket.on('game:created', ({ gameId, qrDataUrl, joinUrl }) => {
-  state.gameId = gameId;
-  sessionStorage.setItem('ww_admin_game', gameId);
-  document.getElementById('admin-game-id').textContent = gameId;
+socket.on('game:created', ({ qrDataUrl, joinUrl }) => {
   document.getElementById('qr-code').src = qrDataUrl;
   document.getElementById('join-url-text').textContent = joinUrl;
   show('screen-lobby');
 });
 
 socket.on('game:state', snap => {
-  state.gameId = snap.gameId;
   state.phase = snap.phase;
   state.phaseEndsAt = snap.phaseEndsAt;
   state.players = snap.players;
