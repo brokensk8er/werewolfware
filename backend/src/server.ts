@@ -2,10 +2,12 @@ import express, { Express } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
-import { GameManager } from './engine/gameManager';
-import { ClassicMode } from './gamemodes/classic';
-import { ClientEvents, ServerEvents } from './types';
+import { fileURLToPath } from 'url';
+import { GameManager } from './engine/gameManager.js';
+import { ClassicMode } from './gamemodes/classic.js';
+import { ClientEvents, ServerEvents } from './types.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app: Express = express();
 const httpServer = createServer(app);
 const io = new SocketIOServer<ClientEvents, ServerEvents>(httpServer, {

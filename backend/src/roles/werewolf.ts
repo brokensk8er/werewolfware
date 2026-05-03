@@ -1,4 +1,4 @@
-import { Role, GameState, Player } from '../types';
+import { Role, GameState, Player } from '../types.js';
 
 export const Werewolf: Role = {
   id: 'werewolf',

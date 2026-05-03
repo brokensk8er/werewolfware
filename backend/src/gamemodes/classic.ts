@@ -1,8 +1,8 @@
-import { GameMode, Role } from '../types';
-import { Villager } from '../roles/villager';
-import { Werewolf } from '../roles/werewolf';
-import { Seer } from '../roles/seer';
-import { Doctor } from '../roles/doctor';
+import { GameMode, Role } from '../types.js';
+import { Villager } from '../roles/villager.js';
+import { Werewolf } from '../roles/werewolf.js';
+import { Seer } from '../roles/seer.js';
+import { Doctor } from '../roles/doctor.js';
 
 export const ClassicMode: GameMode = {
   id: 'classic',

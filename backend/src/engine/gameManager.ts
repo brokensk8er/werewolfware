@@ -1,6 +1,6 @@
-import { GameState, GamePhase, Player, Role, GameMode } from '../types';
-import { PhaseManager } from './phaseManager';
-import { WinChecker } from './winChecker';
+import { GameState, GamePhase, Player, Role, GameMode } from '../types.js';
+import { PhaseManager } from './phaseManager.js';
+import { WinChecker } from './winChecker.js';
 
 export class GameManager {
   private games: Map<string, GameState> = new Map();

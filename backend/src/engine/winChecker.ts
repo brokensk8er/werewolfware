@@ -1,4 +1,4 @@
-import { GameState, PlayerTeam } from '../types';
+import { GameState, PlayerTeam } from '../types.js';
 
 export class WinChecker {
   checkWin(game: GameState): PlayerTeam | null {
