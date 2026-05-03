@@ -19,6 +19,7 @@ export function registerHandlers(io, socket) {
     socket.join(`game:${game.id}:all`);
     socket.join(`game:${game.id}:admin`);
     socket.emit('game:created', { gameId: game.id, qrDataUrl, joinUrl });
+    io.to(`game:${game.id}:all`).emit('lobby:updated', { players: gm.getLobbyPlayers(game) });
     socket.emit('admin:state', gm.getAdminSnapshot(game));
   });
 
