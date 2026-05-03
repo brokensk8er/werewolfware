@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import os from 'os';
 import qrcode from 'qrcode';
 import { PhaseTimer } from './phaseTimer.js';
-import { assignRoles, checkWinCondition } from './roles.js';
+import { checkWinCondition } from './roles.js';
+import { assignRoles } from './engine/roleRegistry.js';
 
 const games = new Map();
 let _io = null;

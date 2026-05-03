@@ -4,6 +4,12 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { registerHandlers, authMiddleware } from './src/socketHandlers.js';
+import { register as registerRole } from './src/engine/roleRegistry.js';
+import villager from './src/roles/villager.js';
+import werewolf from './src/roles/werewolf.js';
+
+registerRole(werewolf);
+registerRole(villager);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, 'public');
