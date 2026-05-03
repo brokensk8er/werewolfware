@@ -52,6 +52,12 @@ const nightInstruction = document.getElementById('night-instruction');
 const voteList = document.getElementById('vote-list');
 const targetList = document.getElementById('target-list');
 
+const hostControls = document.getElementById('host-controls');
+const advancePhaseBtn = document.getElementById('advance-phase-btn');
+advancePhaseBtn.addEventListener('click', () => {
+  socket.emit('game:advancePhase');
+});
+
 // Event listeners
 createBtn.addEventListener('click', () => {
   createForm.classList.remove('hidden');
@@ -134,6 +140,25 @@ socket.on('phase:changed', (data) => {
   updatePhaseDisplay(data.phase, data.secondsRemaining);
 });
 
+socket.on('player:eliminated', (data) => {
+  showError(`${data.playerName} (${data.role}) was eliminated!`);
+  // Update player list to mark as dead
+  gameState.players = gameState.players.map((p) =>
+    p.id === data.playerId ? { ...p, alive: false } : p
+  );
+  updateGamePlayerList();
+});
+
+socket.on('seer:investigation', (data) => {
+  // Only seers see this
+  showError(`You investigated: ${data.targetName} is a ${data.role}`);
+});
+
+socket.on('night:actionRecorded', (data) => {
+  const target = gameState.players.find((p) => p.id === data.targetId);
+  showError(`Action recorded on ${target?.name}`);
+});
+
 socket.on('game:ended', (data) => {
   showGameEnded(data.winner, data.winReason);
 });
@@ -191,6 +216,13 @@ function updatePhaseDisplay(phase, secondsRemaining) {
   dayPhaseDiv.classList.add('hidden');
   nightPhaseDiv.classList.add('hidden');
   gameEndedDiv.classList.add('hidden');
+
+  // Show host controls only during active game phases
+  if (gameState.isHost && phase !== 'ended') {
+    hostControls.classList.remove('hidden');
+  } else {
+    hostControls.classList.add('hidden');
+  }
 
   phaseTitle.textContent = phase === 'day' ? '☀️ Day' : '🌙 Night';
 

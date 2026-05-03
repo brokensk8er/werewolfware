@@ -25,6 +25,8 @@ export interface GameState {
   winReason?: string;
   dayVotes: Map<string, string>; // playerId -> targetId
   nightActions: Map<string, { playerId: string; targetId: string }>;
+  protectedPlayers: Set<string>; // playerIds protected by doctor
+  seerInvestigations: Map<string, { seerId: string; targetId: string; role: Role }>;
 }
 
 // Role interface
@@ -55,6 +57,7 @@ export interface ClientEvents {
   'lobby:create': (data: { playerName: string }) => void;
   'lobby:join': (data: { roomCode: string; playerName: string }) => void;
   'game:start': () => void;
+  'game:advancePhase': () => void;
   'game:setMode': (data: { modeId: string }) => void;
   'vote:cast': (data: { targetId: string }) => void;
   'night:action': (data: { targetId: string }) => void;
@@ -71,6 +74,13 @@ export interface ServerEvents {
     players: Array<{ id: string; name: string }>;
   }) => void;
   'phase:changed': (data: { phase: GamePhase; secondsRemaining: number }) => void;
+  'player:eliminated': (data: {
+    playerId: string;
+    playerName: string;
+    role: string;
+  }) => void;
+  'seer:investigation': (data: { targetName: string; role: string }) => void;
+  'night:actionRecorded': (data: { targetId: string }) => void;
   'game:ended': (data: { winner: PlayerTeam; winReason: string }) => void;
   error: (data: { message: string }) => void;
 }

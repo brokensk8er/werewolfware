@@ -24,6 +24,8 @@ export class GameManager {
       createdAt: new Date(),
       dayVotes: new Map(),
       nightActions: new Map(),
+      protectedPlayers: new Set(),
+      seerInvestigations: new Map(),
     };
     this.games.set(roomCode, game);
     return game;
@@ -77,6 +79,67 @@ export class GameManager {
     const game = this.games.get(roomCode);
     if (!game) return;
     game.nightActions.set(playerId, { playerId, targetId });
+  }
+
+  resolveNight(roomCode: string): { eliminated: Player[]; investigations: any[] } {
+    const game = this.games.get(roomCode);
+    if (!game || game.phase !== 'night') return { eliminated: [], investigations: [] };
+
+    const eliminated: Player[] = [];
+    const investigations: any[] = [];
+    const killTargets = new Set<string>(); // players marked for death
+
+    // Reset protection and investigation state
+    game.protectedPlayers.clear();
+    game.seerInvestigations.clear();
+
+    // Phase 1: Collect all night actions by role
+    for (const [playerId, action] of game.nightActions) {
+      const player = game.players.get(playerId);
+      if (!player || !player.alive || !player.role.hasNightAction) continue;
+
+      const target = game.players.get(action.targetId);
+      if (!target) continue;
+
+      // Werewolf: mark for death
+      if (player.role.id === 'werewolf') {
+        killTargets.add(action.targetId);
+      }
+
+      // Doctor: protect
+      if (player.role.id === 'doctor') {
+        game.protectedPlayers.add(action.targetId);
+      }
+
+      // Seer: investigate (store for later broadcast)
+      if (player.role.id === 'seer') {
+        game.seerInvestigations.set(playerId, {
+          seerId: playerId,
+          targetId: action.targetId,
+          role: target.role,
+        });
+        investigations.push({
+          seerId: player.name,
+          targetName: target.name,
+          role: target.role.name,
+        });
+      }
+    }
+
+    // Phase 2: Apply kills (skip protected players)
+    for (const targetId of killTargets) {
+      const target = game.players.get(targetId);
+      if (target && target.alive && !game.protectedPlayers.has(targetId)) {
+        target.alive = false;
+        eliminated.push(target);
+        target.role.onDeath?.(game, target);
+      }
+    }
+
+    // Clear night actions for next round
+    game.nightActions.clear();
+
+    return { eliminated, investigations };
   }
 
   advancePhase(roomCode: string): GamePhase | null {

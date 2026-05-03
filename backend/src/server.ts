@@ -29,6 +29,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Helper to get room code from socket
+function getRoomCode(socket: any): string | null {
+  for (const room of Object.values(socket.rooms)) {
+    if (room !== socket.id) return room as string;
+  }
+  return null;
+}
+
 // Socket.io handlers
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
@@ -70,16 +78,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game:start', () => {
-    // TODO: determine which room this socket belongs to
-    // For now, find the game containing this socket
-    let roomCode: string | null = null;
-    for (const room of Object.values(socket.rooms)) {
-      if (room !== socket.id) {
-        roomCode = room;
-        break;
-      }
-    }
-
+    const roomCode = getRoomCode(socket);
     if (!roomCode) {
       socket.emit('error', { message: 'Not in a room' });
       return;
@@ -113,16 +112,107 @@ io.on('connection', (socket) => {
     console.log(`Game started in room ${roomCode}`);
   });
 
+  socket.on('game:advancePhase', () => {
+    const roomCode = getRoomCode(socket);
+    if (!roomCode) {
+      socket.emit('error', { message: 'Not in a room' });
+      return;
+    }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    // If ending night phase, resolve night actions
+    if (game.phase === 'night') {
+      const { eliminated, investigations } = gameManager.resolveNight(roomCode);
+
+      // Broadcast eliminations
+      for (const player of eliminated) {
+        io.to(roomCode).emit('player:eliminated', {
+          playerId: player.id,
+          playerName: player.name,
+          role: player.role.name,
+        });
+      }
+
+      // Send investigation results only to seers
+      for (const [seerId, investigation] of game.seerInvestigations) {
+        const targetName = game.players.get(investigation.targetId)?.name;
+        if (targetName) {
+          io.to(seerId).emit('seer:investigation', {
+            targetName,
+            role: investigation.role.name,
+          });
+        }
+      }
+    }
+
+    // Clear votes before transitioning
+    if (game.phase === 'day') {
+      game.dayVotes.clear();
+    }
+
+    // Advance to next phase
+    const nextPhase = gameManager.advancePhase(roomCode);
+
+    if (nextPhase === 'ended' && game.winner && game.winReason) {
+      io.to(roomCode).emit('game:ended', {
+        winner: game.winner,
+        winReason: game.winReason,
+      });
+    } else if (nextPhase) {
+      io.to(roomCode).emit('phase:changed', {
+        phase: nextPhase,
+        secondsRemaining: 30,
+      });
+    }
+
+    console.log(`Phase advanced to ${nextPhase} in room ${roomCode}`);
+  });
+
   socket.on('game:setMode', (data) => {
     // TODO: implement game mode switching in lobby
   });
 
   socket.on('vote:cast', (data) => {
-    // TODO: find room, validate player is in day phase, record vote
+    const roomCode = getRoomCode(socket);
+    if (!roomCode) {
+      socket.emit('error', { message: 'Not in a room' });
+      return;
+    }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game || game.phase !== 'day') {
+      socket.emit('error', { message: 'Not in day phase' });
+      return;
+    }
+
+    gameManager.castVote(roomCode, socket.id, data.targetId);
+    console.log(`Player ${socket.id} voted for ${data.targetId}`);
   });
 
   socket.on('night:action', (data) => {
-    // TODO: find room, validate player has night action, record action
+    const roomCode = getRoomCode(socket);
+    if (!roomCode) {
+      socket.emit('error', { message: 'Not in a room' });
+      return;
+    }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game || game.phase !== 'night') {
+      socket.emit('error', { message: 'Not in night phase' });
+      return;
+    }
+
+    const player = game.players.get(socket.id);
+    if (!player || !player.role.hasNightAction) {
+      socket.emit('error', { message: 'You do not have a night action' });
+      return;
+    }
+
+    gameManager.recordNightAction(roomCode, socket.id, data.targetId);
+    socket.emit('night:actionRecorded', { targetId: data.targetId });
+    console.log(`${player.role.name} ${player.name} targeted ${game.players.get(data.targetId)?.name}`);
   });
 
   socket.on('disconnect', () => {
