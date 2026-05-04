@@ -34,7 +34,7 @@
 
 ### High Priority (MVP completion)
 - ✅ **Fly.io deployment** — Machine running, system responsive
-- ⚠️ **GitHub Pages domain** — Configure in repo settings, custom domain (optional)
+- N/A **GitHub Pages domain** — Not needed; players join via QR code
 
 ### Medium Priority (Post-MVP)
 - Reconnection handling (player DC/rejoin) — ~3-5k tokens
@@ -159,7 +159,7 @@ Before going live, see `DEPLOYMENT.md` for:
 - [x] `flyctl` CLI installed
 - [x] `FLY_API_TOKEN` added to GitHub secrets
 - [x] Backend deployed to Fly.io
-- [ ] Frontend deployed to GitHub Pages
+- [x] Frontend deployed to GitHub Pages
 - [ ] CORS updated to your domain
 - [ ] Firewall rules checked
 
