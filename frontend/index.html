@@ -13,47 +13,21 @@
         <h1>🐺 Werewolf</h1>
         <p class="subtitle">A social deduction party game</p>
 
-        <div class="options">
-          <button id="create-btn" class="btn btn-primary">Create Game</button>
-          <button id="join-btn" class="btn btn-secondary">Join Game</button>
-        </div>
-
-        <div id="create-form" class="form hidden">
-          <h2>Create a Game</h2>
-          <input
-            type="text"
-            id="creator-name"
-            placeholder="Your name"
-            class="input"
-          >
-          <button id="create-submit" class="btn btn-primary">Create</button>
-          <button id="create-cancel" class="btn btn-secondary">Cancel</button>
-        </div>
-
-        <div id="join-form" class="form hidden">
-          <h2>Join a Game</h2>
-          <input
-            type="text"
-            id="room-code"
-            placeholder="Room code"
-            class="input"
-            maxlength="6"
-          >
+        <div id="join-form" class="form">
           <input
             type="text"
             id="player-name"
             placeholder="Your name"
             class="input"
           >
-          <button id="join-submit" class="btn btn-primary">Join</button>
-          <button id="join-cancel" class="btn btn-secondary">Cancel</button>
+          <button id="join-submit" class="btn btn-primary">Join Game</button>
         </div>
       </div>
     </div>
 
     <div id="lobby-wait-screen" class="screen hidden">
       <div class="container">
-        <h1>Room <span id="room-code-display"></span></h1>
+        <h1>Waiting for Game to Start</h1>
         <p>Waiting for players...</p>
 
         <div class="player-list">

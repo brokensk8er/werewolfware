@@ -20,7 +20,6 @@
     <header id="topbar">
       <div class="topbar-left">
         <span class="topbar-logo">🐺 Werewolf Admin</span>
-        <span id="topbar-room" class="topbar-badge hidden"></span>
         <span id="topbar-phase" class="topbar-badge phase-badge hidden"></span>
       </div>
       <div class="topbar-right">
@@ -29,15 +28,12 @@
       </div>
     </header>
 
-    <!-- Room picker (shown until joined a room) -->
-    <div id="room-picker">
+    <!-- No active game panel -->
+    <div id="no-game-panel" class="hidden">
       <div class="picker-card">
-        <h2>Join a Game Room</h2>
-        <p class="picker-sub">Enter the room code to observe and control the game.</p>
-        <div class="picker-row">
-          <input type="text" id="room-input" placeholder="Room code (e.g. A1B2C3)" maxlength="10">
-          <button id="room-join-btn" class="btn-primary">Connect</button>
-        </div>
+        <h2>No Active Game</h2>
+        <p class="picker-sub">No game is currently running. Create one to get started.</p>
+        <button id="create-game-btn" class="btn-primary">Create Game</button>
         <p id="picker-error" class="picker-error"></p>
       </div>
     </div>

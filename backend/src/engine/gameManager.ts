@@ -49,6 +49,13 @@ export class GameManager {
     return this.games.get(roomCode);
   }
 
+  getActiveRoomCode(): string | null {
+    for (const [code] of this.games) {
+      return code;
+    }
+    return null;
+  }
+
   addPlayer(roomCode: string, playerId: string, playerName: string): Player | null {
     const game = this.games.get(roomCode);
     if (!game) return null;

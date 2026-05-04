@@ -232,11 +232,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('lobby:join', (data) => {
-    const { roomCode, playerName } = data;
-    const game = gameManager.getGame(roomCode);
+    const { playerName } = data;
+    // Auto-resolve the single active game; ignore any client-supplied roomCode
+    const roomCode = getActiveRoomCode();
+    const game = roomCode ? gameManager.getGame(roomCode) : null;
 
-    if (!game) {
-      socket.emit('error', { message: 'Room not found' });
+    if (!game || !roomCode) {
+      socket.emit('error', { message: 'No active game found' });
       return;
     }
 
@@ -482,13 +484,35 @@ function resolveAndAdvance(roomCode: string) {
   console.log(`Phase advanced to ${nextPhase} in room ${roomCode}`);
 }
 
+// ─── Admin helpers ────────────────────────────────────────────────────────────
+
+function getActiveRoomCode(): string | null {
+  return gameManager.getActiveRoomCode();
+}
+
+function attachAdminToRoom(socket: any, uid: string, roomCode: string) {
+  if (!adminWatchers.has(roomCode)) adminWatchers.set(roomCode, new Set());
+  adminWatchers.get(roomCode)!.add(socket.id);
+  socket.data.roomCode = roomCode;
+  socket.data.adminUid = uid;
+
+  socket.emit('admin:authed', { uid, roomCode });
+
+  const fullSnapshot = gameManager.getFullSnapshot(roomCode);
+  if (fullSnapshot) {
+    socket.emit('admin:state', fullSnapshot);
+  }
+
+  console.log(`[Admin] uid=${uid} watching room ${roomCode}`);
+}
+
 // ─── Admin namespace ──────────────────────────────────────────────────────────
 
 adminNS.on('connection', (socket: any) => {
   console.log(`[Admin] socket connected: ${socket.id}`);
 
-  socket.on('admin:auth', async (data: { token: string; roomCode: string }) => {
-    const { token, roomCode } = data;
+  socket.on('admin:auth', async (data: { token: string }) => {
+    const { token } = data;
 
     const uid = await verifyAdminToken(token);
     if (!uid) {
@@ -496,22 +520,34 @@ adminNS.on('connection', (socket: any) => {
       return;
     }
 
-    // Track this admin socket as watching the room
-    if (!adminWatchers.has(roomCode)) adminWatchers.set(roomCode, new Set());
-    adminWatchers.get(roomCode)!.add(socket.id);
-    socket.data.roomCode = roomCode;
+    // Find the single active game
+    const roomCode = getActiveRoomCode();
 
-    socket.emit('admin:authed', { uid, roomCode });
-
-    // Send full current state
-    const fullSnapshot = gameManager.getFullSnapshot(roomCode);
-    if (fullSnapshot) {
-      socket.emit('admin:state', fullSnapshot);
-    } else {
-      socket.emit('error', { message: `Room ${roomCode} not found` });
+    if (!roomCode) {
+      socket.data.adminUid = uid;
+      socket.emit('admin:authed', { uid });
+      socket.emit('admin:noGame');
+      console.log(`[Admin] uid=${uid} connected — no active game`);
+      return;
     }
 
-    console.log(`[Admin] uid=${uid} watching room ${roomCode}`);
+    attachAdminToRoom(socket, uid, roomCode);
+  });
+
+  socket.on('admin:createGame', () => {
+    if (!socket.data.adminUid) { socket.emit('error', { message: 'Unauthorized' }); return; }
+
+    // Only allow creating a game when none is active
+    if (getActiveRoomCode()) {
+      socket.emit('error', { message: 'A game is already active' });
+      return;
+    }
+
+    const roomCode = Math.random().toString(36).substring(7).toUpperCase();
+    gameManager.createGame(roomCode, '', ClassicMode);
+    console.log(`[Admin] Game created: ${roomCode}`);
+
+    attachAdminToRoom(socket, socket.data.adminUid, roomCode);
   });
 
   socket.on('admin:forcePhase', () => {

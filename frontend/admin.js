@@ -26,12 +26,10 @@ const db   = getFirestore(app);
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let adminSocket = null;
-let currentRoomCode = null;
-let activeFilterCat  = 'all';
+let adminSocket     = null;
+let activeFilterCat = 'all';
 let selectedPlayerId = null;
 
-// live countdown
 let timerInterval = null;
 let timerEndsAt   = null;
 
@@ -39,16 +37,14 @@ let timerEndsAt   = null;
 
 const authGate      = document.getElementById('auth-gate');
 const dashboard     = document.getElementById('dashboard');
-const roomPicker    = document.getElementById('room-picker');
+const noGamePanel   = document.getElementById('no-game-panel');
 const mainLayout    = document.getElementById('main-layout');
 
-const topbarRoom    = document.getElementById('topbar-room');
 const topbarPhase   = document.getElementById('topbar-phase');
 const topbarUser    = document.getElementById('topbar-user');
 const logoutBtn     = document.getElementById('logout-btn');
 
-const roomInput     = document.getElementById('room-input');
-const roomJoinBtn   = document.getElementById('room-join-btn');
+const createGameBtn = document.getElementById('create-game-btn');
 const pickerError   = document.getElementById('picker-error');
 
 const playerList    = document.getElementById('player-list');
@@ -85,6 +81,7 @@ onAuthStateChanged(auth, async (user) => {
   topbarUser.textContent = user.email;
   authGate.classList.add('hidden');
   dashboard.classList.remove('hidden');
+  connectToGame(user);
 });
 
 logoutBtn.addEventListener('click', async () => {
@@ -92,36 +89,26 @@ logoutBtn.addEventListener('click', async () => {
   window.location.href = 'login.html';
 });
 
-// ─── Room connection ──────────────────────────────────────────────────────────
+// ─── Game connection ──────────────────────────────────────────────────────────
 
-roomJoinBtn.addEventListener('click', connectToRoom);
-roomInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') connectToRoom(); });
-
-async function connectToRoom() {
-  const code = roomInput.value.trim().toUpperCase();
-  if (!code) { pickerError.textContent = 'Enter a room code.'; return; }
-
-  pickerError.textContent = '';
-  roomJoinBtn.disabled = true;
-  roomJoinBtn.textContent = 'Connecting…';
-
-  const user = auth.currentUser;
-  if (!user) { window.location.href = 'login.html'; return; }
+async function connectToGame(user) {
   const token = await user.getIdToken();
 
   adminSocket = io('https://werewolfware.fly.dev/admin');
 
   adminSocket.on('connect', () => {
-    adminSocket.emit('admin:auth', { token, roomCode: code });
+    adminSocket.emit('admin:auth', { token });
   });
 
-  adminSocket.on('admin:authed', (data) => {
-    currentRoomCode = data.roomCode;
-    topbarRoom.textContent  = `Room: ${data.roomCode}`;
-    topbarRoom.classList.remove('hidden');
+  adminSocket.on('admin:authed', () => {
+    noGamePanel.classList.add('hidden');
     topbarPhase.classList.remove('hidden');
-    roomPicker.classList.add('hidden');
     mainLayout.classList.remove('hidden');
+  });
+
+  adminSocket.on('admin:noGame', () => {
+    noGamePanel.classList.remove('hidden');
+    mainLayout.classList.add('hidden');
   });
 
   adminSocket.on('admin:state', (data) => {
@@ -138,11 +125,15 @@ async function connectToRoom() {
 
   adminSocket.on('error', (data) => {
     pickerError.textContent = data.message;
-    roomJoinBtn.disabled = false;
-    roomJoinBtn.textContent = 'Connect';
-    if (adminSocket) { adminSocket.disconnect(); adminSocket = null; }
   });
 }
+
+createGameBtn.addEventListener('click', () => {
+  if (adminSocket) {
+    pickerError.textContent = '';
+    adminSocket.emit('admin:createGame');
+  }
+});
 
 // ─── Phase controls ───────────────────────────────────────────────────────────
 
@@ -260,7 +251,6 @@ function renderPhase(phase, secondsRemaining) {
   topbarPhase.textContent = phase.toUpperCase();
   topbarPhase.className = `topbar-badge phase-badge phase-${phase}`;
 
-  // Reset countdown
   clearInterval(timerInterval);
   if (secondsRemaining > 0 && phase !== 'lobby' && phase !== 'ended') {
     timerEndsAt = Date.now() + secondsRemaining * 1000;
@@ -282,7 +272,6 @@ function renderVotes(votes) {
     voteTally.innerHTML = '<p class="muted">No active vote.</p>';
     return;
   }
-  // Tally
   const tally = new Map();
   votes.forEach(({ targetId, targetName, voterName }) => {
     if (!tally.has(targetId)) tally.set(targetId, { name: targetName, voters: [] });

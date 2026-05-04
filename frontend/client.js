@@ -30,21 +30,10 @@ const lobbyWaitScreen = document.getElementById('lobby-wait-screen');
 const gameScreen = document.getElementById('game-screen');
 const errorAlert = document.getElementById('error-screen');
 
-const createBtn = document.getElementById('create-btn');
-const joinBtn = document.getElementById('join-btn');
-const createForm = document.getElementById('create-form');
 const joinForm = document.getElementById('join-form');
-
-const creatorName = document.getElementById('creator-name');
-const roomCode = document.getElementById('room-code');
 const playerName = document.getElementById('player-name');
-
-const createSubmit = document.getElementById('create-submit');
-const createCancel = document.getElementById('create-cancel');
 const joinSubmit = document.getElementById('join-submit');
-const joinCancel = document.getElementById('join-cancel');
 
-const roomCodeDisplay = document.getElementById('room-code-display');
 const playersUl = document.getElementById('players-ul');
 const gamePlayersUl = document.getElementById('game-players-ul');
 const gameControlsDiv = document.getElementById('game-controls');
@@ -84,44 +73,19 @@ chatInput.addEventListener('keypress', (e) => {
 });
 
 // Event listeners
-createBtn.addEventListener('click', () => {
-  createForm.classList.remove('hidden');
-});
-
-joinBtn.addEventListener('click', () => {
-  joinForm.classList.remove('hidden');
-});
-
-createCancel.addEventListener('click', () => {
-  createForm.classList.add('hidden');
-});
-
-joinCancel.addEventListener('click', () => {
-  joinForm.classList.add('hidden');
-});
-
-createSubmit.addEventListener('click', () => {
-  const name = creatorName.value.trim();
+joinSubmit.addEventListener('click', () => {
+  const name = playerName.value.trim();
   if (!name) {
     showError('Please enter your name');
     return;
   }
   gameState.playerName = name;
-  socket.emit('lobby:create', { playerName: name });
-  creatorName.value = '';
+  socket.emit('lobby:join', { playerName: name });
+  playerName.value = '';
 });
 
-joinSubmit.addEventListener('click', () => {
-  const code = roomCode.value.trim().toUpperCase();
-  const name = playerName.value.trim();
-  if (!code || !name) {
-    showError('Please enter room code and name');
-    return;
-  }
-  gameState.playerName = name;
-  socket.emit('lobby:join', { roomCode: code, playerName: name });
-  roomCode.value = '';
-  playerName.value = '';
+playerName.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') joinSubmit.click();
 });
 
 startGameBtn.addEventListener('click', () => {
@@ -129,19 +93,10 @@ startGameBtn.addEventListener('click', () => {
 });
 
 // Socket.io event handlers
-socket.on('lobby:created', (data) => {
-  gameState.roomCode = data.roomCode;
-  gameState.playerId = data.playerId;
-  gameState.isHost = true;
-  showLobbyWait();
-  createForm.classList.add('hidden');
-});
-
 socket.on('lobby:joined', (data) => {
   gameState.roomCode = data.roomCode;
   gameState.playerId = data.playerId;
   showLobbyWait();
-  joinForm.classList.add('hidden');
 });
 
 socket.on('lobby:updated', (data) => {
@@ -243,7 +198,6 @@ function showError(message) {
 function showLobbyWait() {
   lobbyScreen.classList.add('hidden');
   lobbyWaitScreen.classList.remove('hidden');
-  roomCodeDisplay.textContent = gameState.roomCode;
 }
 
 function showGameScreen() {
