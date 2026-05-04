@@ -105,6 +105,7 @@ io.on('connection', (socket) => {
         players: Array.from(game.players.values()).map((p) => ({
           id: p.id,
           name: p.name,
+          alive: p.alive,
         })),
       });
     }
