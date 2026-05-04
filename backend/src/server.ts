@@ -37,6 +37,68 @@ function getRoomCode(socket: any): string | null {
   return null;
 }
 
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+const WEREWOLF_DEATHS = [
+  'found torn apart at the edge of the woods',
+  'discovered in several pieces behind the mill',
+  'dragged from their bed and left in the square',
+  'found with claw marks too large to be any dog',
+  'heard screaming at midnight — nothing left by dawn',
+  'pulled into the dark, only their shoes remained',
+];
+
+const VOTE_DEATHS = [
+  'hoisted up by the angry mob',
+  'pelted with vegetables until lifeless',
+  'dragged to the gallows amid wild cheering',
+  'driven out of town and never seen again — officially',
+  'given a very strongly worded farewell',
+  'met the pointy end of village justice',
+];
+
+const SEER_WHISPERS = [
+  'Your third eye twitches. The spirits reveal',
+  'The visions crash over you like a wave —',
+  'The crow lands on your shoulder and croaks:',
+  'You gaze into the flame and see the truth:',
+  'A cold certainty washes over you:',
+];
+
+const PHASE_NIGHT = [
+  '🌙 Darkness falls. The village sleeps — or pretends to.',
+  '🌙 Night descends. Something stirs in the shadows.',
+  '🌙 The torches flicker out. Pray for dawn.',
+  '🌙 Night again. Lock your doors. Not that it helps.',
+];
+
+const PHASE_DAY = [
+  '☀️ Dawn breaks. Someone is missing. Surprise.',
+  '☀️ The sun rises on a smaller village.',
+  '☀️ Day breaks. Time to point fingers and argue.',
+  '☀️ Morning. The survivors gather in the square.',
+];
+
+function announce(roomCode: string, text: string, senderId = '__system__', senderName = '📢 Announcement') {
+  io.to(roomCode).emit('chat:message', {
+    senderId,
+    senderName,
+    text,
+    timestamp: new Date(),
+  });
+}
+
+function announcePrivate(targetId: string, text: string, senderName = '🔮 The Spirits') {
+  io.to(targetId).emit('chat:message', {
+    senderId: '__system__',
+    senderName,
+    text,
+    timestamp: new Date(),
+  });
+}
+
 // Socket.io handlers
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
@@ -108,7 +170,11 @@ io.on('connection', (socket) => {
           alive: p.alive,
         })),
       });
+      announcePrivate(playerId, `You are the ${player.role.name}. ${player.role.description}`, '🃏 Your Role');
     }
+
+    announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`);
+    announce(roomCode, pick(PHASE_NIGHT));
 
     io.to(roomCode).emit('phase:changed', {
       phase: 'night',
@@ -132,16 +198,20 @@ io.on('connection', (socket) => {
     if (game.phase === 'night') {
       const { eliminated, investigations } = gameManager.resolveNight(roomCode);
 
-      // Broadcast eliminations
+      if (eliminated.length === 0) {
+        announce(roomCode, 'The village stirs uneasily. Somehow, everyone survived the night.');
+      }
+
       for (const player of eliminated) {
         io.to(roomCode).emit('player:eliminated', {
           playerId: player.id,
           playerName: player.name,
           role: player.role.name,
         });
+        announce(roomCode, `${player.name} was ${pick(WEREWOLF_DEATHS)}. They were a ${player.role.name}.`);
       }
 
-      // Send investigation results only to seers
+      // Send investigation results only to seers (private whisper)
       for (const [seerId, investigation] of game.seerInvestigations) {
         const targetName = game.players.get(investigation.targetId)?.name;
         if (targetName) {
@@ -149,6 +219,7 @@ io.on('connection', (socket) => {
             targetName,
             role: investigation.role.name,
           });
+          announcePrivate(seerId, `${pick(SEER_WHISPERS)} ${targetName} is a ${investigation.role.name}.`);
         }
       }
     }
@@ -167,6 +238,9 @@ io.on('connection', (socket) => {
           playerName: eliminated.name,
           role: eliminated.role.name,
         });
+        announce(roomCode, `The village has spoken. ${eliminated.name} was ${pick(VOTE_DEATHS)} with ${voteCount} vote${voteCount !== 1 ? 's' : ''}. They were a ${eliminated.role.name}.`);
+      } else {
+        announce(roomCode, 'The vote was inconclusive. No one was eliminated. The werewolves smirk.');
       }
     }
 
@@ -178,7 +252,15 @@ io.on('connection', (socket) => {
         winner: game.winner,
         winReason: game.winReason,
       });
-    } else if (nextPhase) {
+      announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`);
+    } else if (nextPhase === 'night') {
+      announce(roomCode, pick(PHASE_NIGHT));
+      io.to(roomCode).emit('phase:changed', {
+        phase: nextPhase,
+        secondsRemaining: 30,
+      });
+    } else if (nextPhase === 'day') {
+      announce(roomCode, pick(PHASE_DAY));
       io.to(roomCode).emit('phase:changed', {
         phase: nextPhase,
         secondsRemaining: 30,

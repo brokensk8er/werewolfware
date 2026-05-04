@@ -211,8 +211,9 @@ socket.on('vote:result', (data) => {
 
 socket.on('chat:message', (data) => {
   const msgEl = document.createElement('div');
-  msgEl.className = 'chat-message';
-  msgEl.innerHTML = `<strong>${data.senderName}:</strong> ${escapeHtml(data.text)}`;
+  const isSystem = data.senderId === '__system__';
+  msgEl.className = isSystem ? 'chat-message chat-system' : 'chat-message';
+  msgEl.innerHTML = `<strong>${escapeHtml(data.senderName)}:</strong> ${escapeHtml(data.text)}`;
   chatMessages.appendChild(msgEl);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 });

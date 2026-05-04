@@ -233,6 +233,18 @@ h3 {
   color: var(--primary);
 }
 
+.chat-system {
+  background: rgba(255, 200, 0, 0.06);
+  border-left: 3px solid #c9a227;
+  padding-left: 0.6rem;
+  font-style: italic;
+  color: #e8d5a3;
+}
+
+.chat-system strong {
+  color: #c9a227;
+}
+
 .chat-input-group {
   display: flex;
   gap: 0.5rem;
