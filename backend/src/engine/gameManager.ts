@@ -66,9 +66,59 @@ export class GameManager {
       role: null as any, // assigned during startGame
       team: 'village',
       alive: true,
+      connected: true,
+      rejoinToken: Math.random().toString(36).slice(2) + Date.now().toString(36),
     };
     game.players.set(playerId, player);
     return player;
+  }
+
+  setConnected(roomCode: string, playerId: string, connected: boolean): Player | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const player = game.players.get(playerId);
+    if (!player) return null;
+    player.connected = connected;
+    return player;
+  }
+
+  reassignPlayerId(roomCode: string, oldId: string, newId: string): boolean {
+    if (oldId === newId) return true;
+    const game = this.games.get(roomCode);
+    if (!game) return false;
+    const player = game.players.get(oldId);
+    if (!player) return false;
+
+    player.id = newId;
+    game.players.delete(oldId);
+    game.players.set(newId, player);
+
+    // dayVotes: update voter keys and target values
+    const voteTarget = game.dayVotes.get(oldId);
+    if (voteTarget !== undefined) { game.dayVotes.delete(oldId); game.dayVotes.set(newId, voteTarget); }
+    for (const [vid, tid] of game.dayVotes) {
+      if (tid === oldId) game.dayVotes.set(vid, newId);
+    }
+
+    // nightActions: update actor keys and target values
+    const action = game.nightActions.get(oldId);
+    if (action) { action.playerId = newId; game.nightActions.delete(oldId); game.nightActions.set(newId, action); }
+    for (const [, act] of game.nightActions) {
+      if (act.targetId === oldId) act.targetId = newId;
+    }
+
+    // protectedPlayers
+    if (game.protectedPlayers.has(oldId)) { game.protectedPlayers.delete(oldId); game.protectedPlayers.add(newId); }
+
+    // seerInvestigations: update seer keys and target values
+    const inv = game.seerInvestigations.get(oldId);
+    if (inv) { inv.seerId = newId; game.seerInvestigations.delete(oldId); game.seerInvestigations.set(newId, inv); }
+    for (const [, investigation] of game.seerInvestigations) {
+      if (investigation.targetId === oldId) investigation.targetId = newId;
+    }
+
+    if (game.hostId === oldId) game.hostId = newId;
+    return true;
   }
 
   startGame(roomCode: string): boolean {
@@ -258,6 +308,7 @@ export class GameManager {
         role: p.role,
         team: p.team,
         alive: p.alive,
+        connected: p.connected,
       })),
       votes: Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
         voterId,

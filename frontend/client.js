@@ -13,6 +13,16 @@ function escapeHtml(text) {
 // Socket.io client
 const socket = io('https://werewolfware.fly.dev');
 
+let rejoinPending = false;
+
+socket.on('connect', () => {
+  const token = localStorage.getItem('werewolf_rejoin_token');
+  if (token && !gameState.playerId) {
+    rejoinPending = true;
+    socket.emit('game:rejoin', { token });
+  }
+});
+
 // Game state
 let gameState = {
   roomCode: null,
@@ -96,6 +106,14 @@ startGameBtn.addEventListener('click', () => {
 socket.on('lobby:joined', (data) => {
   gameState.roomCode = data.roomCode;
   gameState.playerId = data.playerId;
+  if (data.token) localStorage.setItem('werewolf_rejoin_token', data.token);
+  showLobbyWait();
+});
+
+socket.on('lobby:created', (data) => {
+  gameState.roomCode = data.roomCode;
+  gameState.playerId = data.playerId;
+  if (data.token) localStorage.setItem('werewolf_rejoin_token', data.token);
   showLobbyWait();
 });
 
@@ -117,6 +135,28 @@ socket.on('game:started', (data) => {
   updateGamePlayerList();
   document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
   document.getElementById('nameplate-role').textContent = data.role?.name || '';
+});
+
+socket.on('game:reconnected', (data) => {
+  rejoinPending = false;
+  gameState.playerId = data.playerId;
+  gameState.role = data.role;
+  gameState.players = data.players;
+  gameState.phase = data.phase;
+  showGameScreen();
+  updateRoleCard();
+  updateGamePlayerList();
+  document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
+  document.getElementById('nameplate-role').textContent = data.role?.name || '';
+  data.recentMessages.forEach((msg) => appendChatMessage(msg));
+  updatePhaseDisplay(data.phase, data.secondsRemaining);
+});
+
+socket.on('player:connectionChanged', (data) => {
+  gameState.players = gameState.players.map((p) =>
+    p.id === data.playerId ? { ...p, connected: data.connected } : p
+  );
+  updateGamePlayerList();
 });
 
 socket.on('phase:changed', (data) => {
@@ -169,19 +209,19 @@ socket.on('vote:result', (data) => {
 });
 
 socket.on('chat:message', (data) => {
-  const msgEl = document.createElement('div');
-  const isSystem = data.senderId === '__system__';
-  msgEl.className = isSystem ? 'chat-message chat-system' : 'chat-message';
-  msgEl.innerHTML = `<strong>${escapeHtml(data.senderName)}:</strong> ${escapeHtml(data.text)}`;
-  chatMessages.appendChild(msgEl);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  appendChatMessage(data);
 });
 
 socket.on('game:ended', (data) => {
+  localStorage.removeItem('werewolf_rejoin_token');
   showGameEnded(data.winner, data.winReason);
 });
 
 socket.on('error', (data) => {
+  if (rejoinPending) {
+    rejoinPending = false;
+    localStorage.removeItem('werewolf_rejoin_token');
+  }
   showError(data.message);
 });
 
@@ -219,8 +259,19 @@ function updateGamePlayerList() {
   gameState.players.forEach((player) => {
     const li = document.createElement('li');
     li.textContent = player.name;
+    if (!player.alive) li.style.opacity = '0.4';
+    if (player.connected === false) li.textContent += ' (disconnected)';
     gamePlayersUl.appendChild(li);
   });
+}
+
+function appendChatMessage(data) {
+  const msgEl = document.createElement('div');
+  const isSystem = data.senderId === '__system__';
+  msgEl.className = isSystem ? 'chat-message chat-system' : 'chat-message';
+  msgEl.innerHTML = `<strong>${escapeHtml(data.senderName)}:</strong> ${escapeHtml(data.text)}`;
+  chatMessages.appendChild(msgEl);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
 function updateRoleCard() {

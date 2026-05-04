@@ -34,6 +34,9 @@ const ROLE_REGISTRY: Record<string, any> = {
 // Track which admin sockets are watching which room: roomCode -> Set<socketId>
 const adminWatchers = new Map<string, Set<string>>();
 
+// Reconnection token -> { roomCode, playerId }
+const rejoinTokens = new Map<string, { roomCode: string; playerId: string }>();
+
 // Firebase Admin SDK — initialized when FIREBASE_SERVICE_ACCOUNT env var is set
 let firebaseAdminAuth: any = null;
 let firebaseAdminDb: any = null;
@@ -172,6 +175,7 @@ function broadcastAdminPlayerUpdate(roomCode: string) {
     role: p.role,
     team: p.team,
     alive: p.alive,
+    connected: p.connected,
   }));
   emitToAdmins(roomCode, 'admin:playerUpdate', { players });
 }
@@ -238,10 +242,11 @@ io.on('connection', (socket) => {
   socket.on('lobby:create', (data) => {
     const roomCode = Math.random().toString(36).substring(7).toUpperCase();
     gameManager.createGame(roomCode, socket.id, ClassicMode);
-    gameManager.addPlayer(roomCode, socket.id, data.playerName);
+    const creatorPlayer = gameManager.addPlayer(roomCode, socket.id, data.playerName);
+    if (creatorPlayer) rejoinTokens.set(creatorPlayer.rejoinToken, { roomCode, playerId: socket.id });
 
     socket.join(roomCode);
-    socket.emit('lobby:created', { roomCode, playerId: socket.id });
+    socket.emit('lobby:created', { roomCode, playerId: socket.id, token: creatorPlayer?.rejoinToken ?? '' });
 
     const snapshot = gameManager.getSnapshot(roomCode);
     io.to(roomCode).emit('lobby:updated', {
@@ -268,8 +273,9 @@ io.on('connection', (socket) => {
       return;
     }
 
+    rejoinTokens.set(player.rejoinToken, { roomCode, playerId: socket.id });
     socket.join(roomCode);
-    socket.emit('lobby:joined', { roomCode, playerId: socket.id });
+    socket.emit('lobby:joined', { roomCode, playerId: socket.id, token: player.rejoinToken });
 
     const snapshot = gameManager.getSnapshot(roomCode);
     io.to(roomCode).emit('lobby:updated', {
@@ -445,7 +451,72 @@ io.on('connection', (socket) => {
     console.log(`${sender.name}: ${data.text}`);
   });
 
+  socket.on('game:rejoin', (data) => {
+    const entry = rejoinTokens.get(data.token);
+    if (!entry) {
+      socket.emit('error', { message: 'Rejoin token invalid or expired' });
+      return;
+    }
+
+    const { roomCode, playerId: oldId } = entry;
+    const game = gameManager.getGame(roomCode);
+    if (!game) {
+      rejoinTokens.delete(data.token);
+      socket.emit('error', { message: 'Game no longer exists' });
+      return;
+    }
+
+    const newId = socket.id;
+    gameManager.reassignPlayerId(roomCode, oldId, newId);
+    rejoinTokens.set(data.token, { roomCode, playerId: newId });
+    gameManager.setConnected(roomCode, newId, true);
+
+    socket.join(roomCode);
+
+    const player = game.players.get(newId);
+    if (!player) return;
+
+    if (game.phase === 'lobby') {
+      socket.emit('lobby:joined', { roomCode, playerId: newId, token: data.token });
+      const snapshot = gameManager.getSnapshot(roomCode);
+      socket.emit('lobby:updated', { players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })) });
+    } else {
+      const secondsRemaining = game.phaseEndsAt
+        ? Math.max(0, Math.round((game.phaseEndsAt.getTime() - Date.now()) / 1000))
+        : 0;
+      socket.emit('game:reconnected', {
+        playerId: newId,
+        role: player.role,
+        players: Array.from(game.players.values()).map((p) => ({
+          id: p.id,
+          name: p.name,
+          alive: p.alive,
+          connected: p.connected,
+        })),
+        phase: game.phase,
+        secondsRemaining,
+        recentMessages: game.chatMessages.slice(-20),
+      });
+    }
+
+    io.to(roomCode).emit('player:connectionChanged', { playerId: newId, playerName: player.name, connected: true });
+    announce(roomCode, `${player.name} has reconnected.`, 'system');
+    broadcastAdminPlayerUpdate(roomCode);
+    console.log(`Player ${player.name} reconnected: ${oldId} -> ${newId}`);
+  });
+
   socket.on('disconnect', () => {
+    const roomCode = getRoomCode(socket);
+    if (roomCode) {
+      const game = gameManager.getGame(roomCode);
+      const player = game?.players.get(socket.id);
+      if (player) {
+        gameManager.setConnected(roomCode, socket.id, false);
+        io.to(roomCode).emit('player:connectionChanged', { playerId: socket.id, playerName: player.name, connected: false });
+        announce(roomCode, `${player.name} has disconnected. Waiting for them to return...`, 'system');
+        broadcastAdminPlayerUpdate(roomCode);
+      }
+    }
     console.log(`Player disconnected: ${socket.id}`);
   });
 });
