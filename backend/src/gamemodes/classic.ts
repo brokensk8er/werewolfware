@@ -11,7 +11,12 @@ export const ClassicMode: GameMode = {
   minPlayers: 5,
   maxPlayers: 20,
   getRoles(playerCount: number): Role[] {
-    // TODO: balance these counts based on player count
+    // TODO (post-MVP): scale wolf count by player count. Suggested table:
+    //   5-7 players  → 1 wolf
+    //   8-10 players → 2 wolves
+    //   11-15 players → 3 wolves
+    //   16-20 players → 4 wolves
+    // Currently assigns exactly 1 wolf regardless of player count.
     const roles: Role[] = [];
 
     // Example: for 5-8 players, use 1 werewolf, 1 seer, 1 doctor, rest villagers

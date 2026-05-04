@@ -1,4 +1,4 @@
-import { Role } from '../types';
+import { Role } from '../types.js';
 
 export const Villager: Role = {
   id: 'villager',

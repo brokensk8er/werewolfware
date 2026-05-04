@@ -334,7 +334,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game:setMode', (_data) => {
-    // TODO: implement game mode switching in lobby
+    // TODO (low priority): game:setMode is a stub — only ClassicMode exists.
+    // If a second game mode is added, wire up mode selection in the lobby UI
+    // and store the chosen mode on the GameState before game:start.
   });
 
   socket.on('vote:cast', (data) => {
@@ -934,6 +936,65 @@ adminNS.on('connection', (socket: any) => {
       text: logText,
     });
     if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  });
+
+  socket.on('admin:randomizeActions', () => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    const alive = Array.from(game.players.values()).filter((p) => p.alive);
+
+    if (game.phase === 'night') {
+      const actors = alive.filter((p) => p.role?.hasNightAction);
+      let actorCount = 0;
+      for (const actor of actors) {
+        // Doctor may protect themselves; Werewolf must not (self-kill) and Seer gets no value from it
+        const eligible = actor.role.id === 'doctor' ? alive : alive.filter((p) => p.id !== actor.id);
+        if (eligible.length === 0) continue;
+        const target = eligible[Math.floor(Math.random() * eligible.length)];
+        gameManager.recordNightAction(roomCode, actor.id, target.id);
+        const entry = gameManager.pushAdminLog(roomCode, {
+          category: actor.role.id === 'werewolf' ? 'werewolf' : 'seer',
+          senderName: actor.name,
+          text: `[Auto] ${actor.role.name} ${actor.name} → ${target.name}`,
+        });
+        if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+        actorCount++;
+      }
+      const summary = gameManager.pushAdminLog(roomCode, {
+        category: 'system',
+        senderName: '🎲 Admin',
+        text: `Randomized night actions for ${actorCount} player(s)`,
+      });
+      if (summary) emitToAdmins(roomCode, 'admin:logEntry', summary);
+
+    } else if (game.phase === 'day') {
+      let voteCount = 0;
+      for (const voter of alive) {
+        const eligible = alive.filter((p) => p.id !== voter.id);
+        if (eligible.length === 0) continue;
+        const target = eligible[Math.floor(Math.random() * eligible.length)];
+        gameManager.castVote(roomCode, voter.id, target.id);
+        voteCount++;
+      }
+      const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+        voterId,
+        voterName: game.players.get(voterId)?.name || 'Unknown',
+        targetId,
+        targetName: game.players.get(targetId)?.name || 'Unknown',
+      }));
+      io.to(roomCode).emit('vote:updated', { votes });
+      emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+      const summary = gameManager.pushAdminLog(roomCode, {
+        category: 'system',
+        senderName: '🎲 Admin',
+        text: `Randomized day votes for ${voteCount} player(s)`,
+      });
+      if (summary) emitToAdmins(roomCode, 'admin:logEntry', summary);
+    }
   });
 
   socket.on('admin:setTimer', (data: { seconds: number }) => {
