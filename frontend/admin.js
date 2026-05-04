@@ -109,7 +109,7 @@ async function connectToRoom() {
   if (!user) { window.location.href = '/login.html'; return; }
   const token = await user.getIdToken();
 
-  adminSocket = io('/admin');
+  adminSocket = io('https://werewolfware.fly.dev/admin');
 
   adminSocket.on('connect', () => {
     adminSocket.emit('admin:auth', { token, roomCode: code });
