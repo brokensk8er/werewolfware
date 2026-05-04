@@ -357,7 +357,23 @@ io.on('connection', (socket) => {
     io.to(roomCode).emit('vote:updated', { votes });
     emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
 
-    announce(roomCode, pick(VOTE_CAST_AMBIGUOUS), 'town');
+    // Ambiguous town-wide message (players only — not logged to admin)
+    io.to(roomCode).emit('chat:message', {
+      senderId: '__system__',
+      senderName: '📢 Town Square',
+      text: pick(VOTE_CAST_AMBIGUOUS),
+      timestamp: new Date(),
+    });
+
+    // Clear admin log entry
+    const voteEntry = gameManager.pushAdminLog(roomCode, {
+      category: 'town',
+      senderName: voter.name,
+      text: `Voted for ${target?.name ?? 'unknown'}`,
+    });
+    if (voteEntry) emitToAdmins(roomCode, 'admin:logEntry', voteEntry);
+
+    // Private confirmation to voter
     announcePrivate(
       socket.id,
       `You have voted for ${target?.name ?? 'someone'}. ${pick(VOTE_CAST_PRIVATE)}`,
