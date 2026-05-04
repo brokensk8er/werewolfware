@@ -11,7 +11,7 @@ function escapeHtml(text) {
 }
 
 // Socket.io client
-const socket = io();
+const socket = io('https://werewolfware.fly.dev');
 
 // Game state
 let gameState = {
