@@ -31,7 +31,7 @@ app.get('/api/health', (req, res) => {
 
 // Helper to get room code from socket
 function getRoomCode(socket: any): string | null {
-  for (const room of Object.values(socket.rooms)) {
+  for (const room of socket.rooms) {
     if (room !== socket.id) return room as string;
   }
   return null;
@@ -48,6 +48,11 @@ io.on('connection', (socket) => {
 
     socket.join(roomCode);
     socket.emit('lobby:created', { roomCode, playerId: socket.id });
+
+    const snapshot = gameManager.getSnapshot(roomCode);
+    io.to(roomCode).emit('lobby:updated', {
+      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
+    });
     console.log(`Game created: ${roomCode}`);
   });
 
