@@ -33,7 +33,7 @@
 ## What's TODO ❌
 
 ### High Priority (MVP completion)
-- ⚠️ **Fly.io deployment** — Need API token, configure GitHub secret, `flyctl launch`
+- ✅ **Fly.io deployment** — Machine running, system responsive
 - ⚠️ **GitHub Pages domain** — Configure in repo settings, custom domain (optional)
 
 ### Medium Priority (Post-MVP)
@@ -155,10 +155,10 @@ npm start
 ## Deployment Checklist
 
 Before going live, see `DEPLOYMENT.md` for:
-- [ ] Fly.io account created
-- [ ] `flyctl` CLI installed
-- [ ] `FLY_API_TOKEN` added to GitHub secrets
-- [ ] Backend deployed to Fly.io
+- [x] Fly.io account created
+- [x] `flyctl` CLI installed
+- [x] `FLY_API_TOKEN` added to GitHub secrets
+- [x] Backend deployed to Fly.io
 - [ ] Frontend deployed to GitHub Pages
 - [ ] CORS updated to your domain
 - [ ] Firewall rules checked
