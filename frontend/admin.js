@@ -46,6 +46,7 @@ const topbarPhase   = document.getElementById('topbar-phase');
 const topbarUser    = document.getElementById('topbar-user');
 const logoutBtn     = document.getElementById('logout-btn');
 
+const mobileTabs    = document.getElementById('mobile-tabs');
 const createGameBtn = document.getElementById('create-game-btn');
 const pickerError   = document.getElementById('picker-error');
 
@@ -124,11 +125,13 @@ async function connectToGame(user) {
     noGamePanel.classList.add('hidden');
     topbarPhase.classList.remove('hidden');
     mainLayout.classList.remove('hidden');
+    mobileTabs.classList.remove('hidden');
   });
 
   adminSocket.on('admin:noGame', () => {
     noGamePanel.classList.remove('hidden');
     mainLayout.classList.add('hidden');
+    mobileTabs.classList.add('hidden');
     topbarPhase.classList.add('hidden');
     currentPhase = 'lobby';
     currentPlayers = [];
@@ -297,6 +300,19 @@ function closeModal() {
   playerModal.classList.add('hidden');
   selectedPlayerId = null;
 }
+
+// ─── Mobile tab switching ─────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.tab;
+    document.querySelectorAll('.tab-pane').forEach((pane) => {
+      pane.classList.toggle('tab-active', pane.dataset.tab === tab);
+    });
+  });
+});
 
 // ─── Log filters ──────────────────────────────────────────────────────────────
 

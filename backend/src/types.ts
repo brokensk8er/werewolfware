@@ -40,6 +40,7 @@ export interface GameState {
   gameMode: GameMode;
   createdAt: Date;
   phaseEndsAt?: Date;
+  customPhaseDuration?: number; // seconds; persists across phase advances
   winner?: PlayerTeam;
   winReason?: string;
   dayVotes: Map<string, string>; // playerId -> targetId

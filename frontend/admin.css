@@ -2,12 +2,12 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:       #0d0d0d;
-  --surface:  #161616;
-  --panel:    #1c1c1c;
-  --border:   #2a2a2a;
-  --text:     #e0e0e0;
-  --muted:    #666;
+  --bg:       #1a1a1a;
+  --surface:  #222;
+  --panel:    #222;
+  --border:   #444;
+  --text:     #eee;
+  --muted:    #888;
   --primary:  #8b0000;
   --primary-h:#a00000;
   --danger:   #7f1d1d;
@@ -19,7 +19,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 0.9rem;
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -38,6 +38,14 @@ body {
   z-index: 100;
 }
 
+/* ── Dashboard shell ─────────────────────────────────────────────────────── */
+#dashboard {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 /* ── Top bar ─────────────────────────────────────────────────────────────── */
 #topbar {
   display: flex;
@@ -45,13 +53,13 @@ body {
   justify-content: space-between;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  padding: 0.55rem 1.2rem;
+  padding: 0.55rem 1rem;
   flex-shrink: 0;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .topbar-left, .topbar-right {
-  display: flex; align-items: center; gap: 0.75rem;
+  display: flex; align-items: center; gap: 0.6rem;
 }
 
 .topbar-logo {
@@ -61,31 +69,31 @@ body {
 }
 
 .topbar-badge {
-  background: #222;
+  background: #333;
   border: 1px solid var(--border);
   border-radius: 0.3rem;
   padding: 0.15rem 0.55rem;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.05em;
 }
 
 .phase-badge { text-transform: uppercase; }
+.topbar-email { color: var(--muted); font-size: 0.78rem; }
 
-.topbar-email { color: var(--muted); font-size: 0.8rem; }
-
-/* ── Room picker ─────────────────────────────────────────────────────────── */
-#room-picker {
+/* ── No-game panel ───────────────────────────────────────────────────────── */
+#no-game-panel {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 1rem;
 }
 
 .picker-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   padding: 2rem;
   width: 100%;
   max-width: 420px;
@@ -96,25 +104,39 @@ body {
 
 .picker-card h2 { font-size: 1.15rem; color: #fff; }
 .picker-sub     { color: var(--muted); font-size: 0.85rem; }
+.picker-row     { display: flex; gap: 0.5rem; }
+.picker-error   { color: #f87171; font-size: 0.8rem; min-height: 1rem; }
 
-.picker-row {
-  display: flex; gap: 0.5rem;
+/* ── Mobile tab nav ──────────────────────────────────────────────────────── */
+#mobile-tabs {
+  display: none; /* shown only on mobile */
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
-.picker-error { color: #f87171; font-size: 0.8rem; min-height: 1rem; }
-
-/* ── Main layout ─────────────────────────────────────────────────────────── */
-#dashboard {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
+.tab-btn {
+  flex: 1;
+  padding: 0.65rem 0.5rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
+.tab-btn:hover  { color: var(--text); }
+.tab-btn.active { color: #fff; border-bottom-color: var(--primary); }
 
+/* ── Main layout (desktop: sidebar + log) ────────────────────────────────── */
 #main-layout {
   display: grid;
   grid-template-columns: 300px 1fr;
-  gap: 0;
   flex: 1;
   overflow: hidden;
 }
@@ -125,7 +147,6 @@ body {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0;
 }
 
 #right-panel {
@@ -155,7 +176,7 @@ body {
 }
 
 .panel-header h3 {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -163,12 +184,11 @@ body {
 }
 
 .badge {
-  background: #222;
+  background: #333;
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
   font-size: 0.75rem;
-  color: var(--text);
 }
 
 /* ── Player cards ────────────────────────────────────────────────────────── */
@@ -176,10 +196,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.5rem 0.4rem;
-  border-radius: 0.4rem;
+  padding: 0.55rem 0.5rem;
+  border-radius: 0.5rem;
   margin-bottom: 0.3rem;
-  background: #1f1f1f;
+  background: #2a2a2a;
   border: 1px solid var(--border);
   transition: background 0.1s;
 }
@@ -191,7 +211,7 @@ body {
 }
 
 .pc-status  { font-size: 0.7rem; }
-.pc-name    { font-size: 0.88rem; font-weight: 600; }
+.pc-name    { font-size: 0.9rem; font-weight: 600; }
 
 .role-pill {
   font-size: 0.7rem;
@@ -201,7 +221,7 @@ body {
   color: var(--rc, #888);
   background: color-mix(in srgb, var(--rc, #888) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--rc, #888) 40%, transparent);
-  border-radius: 0.25rem;
+  border-radius: 0.3rem;
   padding: 0.1rem 0.4rem;
 }
 
@@ -210,13 +230,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.3rem 0;
+  padding: 0.35rem 0;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
 .ctrl-label { font-size: 0.78rem; color: var(--muted); }
-.ctrl-group { margin-bottom: 0.6rem; }
+.ctrl-group { margin-bottom: 0.7rem; }
 
 .timer-display {
   font-size: 1.1rem;
@@ -230,9 +250,9 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding: 0.15rem 0.5rem;
-  border-radius: 0.25rem;
-  background: #222;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.3rem;
+  background: #333;
   color: #888;
 }
 .phase-pill.phase-night  { background: #1a1a2e; color: #7b93ff; }
@@ -251,9 +271,9 @@ body {
   grid-template-columns: 1fr auto;
   grid-template-rows: auto auto;
   gap: 0 0.5rem;
-  padding: 0.35rem 0;
+  padding: 0.4rem 0;
   border-bottom: 1px solid var(--border);
-  font-size: 0.82rem;
+  font-size: 0.83rem;
 }
 .vote-name   { font-weight: 600; }
 .vote-count  { font-weight: 700; color: #f5c842; text-align: right; }
@@ -273,10 +293,11 @@ body {
   color: var(--muted);
   cursor: pointer;
   font-size: 0.72rem;
-  padding: 0.15rem 0.5rem;
+  padding: 0.2rem 0.55rem;
   transition: all 0.1s;
+  font-family: inherit;
 }
-.filter-btn:hover  { border-color: #555; color: var(--text); }
+.filter-btn:hover  { border-color: #666; color: var(--text); }
 .filter-btn.active { border-color: #c9a227; color: #c9a227; background: rgba(201,162,39,0.08); }
 
 #event-log {
@@ -287,15 +308,15 @@ body {
 
 .log-entry {
   display: grid;
-  grid-template-columns: 56px 58px auto 1fr;
+  grid-template-columns: 56px 52px auto 1fr;
   gap: 0 0.5rem;
   align-items: baseline;
   padding: 0.3rem 0.5rem;
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid #2a2a2a;
   font-size: 0.8rem;
   line-height: 1.4;
 }
-.log-entry:hover { background: #1f1f1f; }
+.log-entry:hover { background: #2a2a2a; }
 
 .log-time   { color: var(--muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
 .log-cat    {
@@ -320,36 +341,36 @@ button, input, select { font-family: inherit; }
   background: var(--primary);
   color: #fff;
   border: none;
-  border-radius: 0.4rem;
-  padding: 0.55rem 1rem;
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 600;
   transition: background 0.15s;
 }
 .btn-primary:hover    { background: var(--primary-h); }
-.btn-primary:disabled { background: #333; cursor: not-allowed; }
+.btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
 
 .btn-secondary {
-  background: #252525;
+  background: #2a2a2a;
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  padding: 0.55rem 1rem;
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   transition: background 0.15s;
 }
-.btn-secondary:hover { background: #2f2f2f; }
+.btn-secondary:hover { background: #333; }
 
 .btn-danger {
   background: var(--danger);
   color: #fca5a5;
   border: none;
-  border-radius: 0.4rem;
-  padding: 0.55rem 1rem;
+  border-radius: 0.5rem;
+  padding: 0.65rem 1rem;
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 600;
   transition: background 0.15s;
 }
@@ -358,16 +379,16 @@ button, input, select { font-family: inherit; }
 .btn-ghost {
   background: none;
   border: 1px solid var(--border);
-  border-radius: 0.35rem;
+  border-radius: 0.4rem;
   color: var(--muted);
   cursor: pointer;
   font-size: 0.78rem;
-  padding: 0.25rem 0.6rem;
+  padding: 0.3rem 0.65rem;
   transition: all 0.1s;
 }
-.btn-ghost:hover { border-color: #555; color: var(--text); }
+.btn-ghost:hover { border-color: #666; color: var(--text); }
 
-.btn-sm { padding: 0.2rem 0.5rem; font-size: 0.75rem; }
+.btn-sm { padding: 0.25rem 0.55rem; font-size: 0.75rem; }
 
 .full-width { width: 100%; }
 
@@ -376,37 +397,40 @@ input[type="text"],
 input[type="email"],
 input[type="number"],
 select {
-  background: #111;
+  background: #2a2a2a;
   border: 1px solid var(--border);
-  border-radius: 0.4rem;
+  border-radius: 0.5rem;
   color: var(--text);
-  padding: 0.5rem 0.7rem;
-  font-size: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.88rem;
   outline: none;
   width: 100%;
 }
 input:focus, select:focus { border-color: var(--primary); }
 
-.input-sm { padding: 0.35rem 0.5rem; font-size: 0.82rem; width: auto; flex: 1; }
+.input-sm { padding: 0.4rem 0.55rem; font-size: 0.85rem; width: auto; flex: 1; }
 
 /* ── Modal ───────────────────────────────────────────────────────────────── */
 .modal {
   position: fixed; inset: 0;
-  background: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.75);
   display: flex; align-items: center; justify-content: center;
   z-index: 50;
+  padding: 1rem;
 }
 
 .modal-card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0.5rem;
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  max-height: 90dvh;
+  overflow-y: auto;
 }
 
 .modal-header {
@@ -416,5 +440,79 @@ input:focus, select:focus { border-color: var(--primary); }
 }
 .modal-header h3 { font-size: 1rem; color: #fff; }
 
-.modal-body { display: flex; flex-direction: column; gap: 1rem; }
+.modal-body    { display: flex; flex-direction: column; gap: 1rem; }
 .modal-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* ── Mobile layout ───────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  body {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  #topbar {
+    padding: 0.5rem 0.75rem;
+  }
+
+  .topbar-email { display: none; }
+
+  #mobile-tabs {
+    display: flex;
+  }
+
+  #main-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
+    overflow: hidden;
+  }
+
+  /* Tab panes: only the active one is visible */
+  .tab-pane {
+    display: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-pane.tab-active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  /* Left panel loses its sidebar border on mobile */
+  #left-panel {
+    border-right: none;
+    overflow: visible;
+  }
+
+  /* Each panel section inside the left pane stacks normally */
+  .panel { border-bottom: 1px solid var(--border); }
+
+  /* Log panel fills its tab */
+  #right-panel {
+    overflow: hidden;
+  }
+
+  #right-panel.tab-active {
+    overflow: hidden;
+  }
+
+  .panel.full-height {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* Bigger touch targets */
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+  }
+
+  .player-card {
+    padding: 0.65rem 0.6rem;
+  }
+
+  .pc-name { font-size: 1rem; }
+}

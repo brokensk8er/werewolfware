@@ -313,11 +313,11 @@ io.on('connection', (socket) => {
 
     announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
     announce(roomCode, pick(PHASE_NIGHT), 'system');
-    gameManager.updateTimer(roomCode, 30);
+    const startSeconds = game.customPhaseDuration ?? 30;
 
-    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: 30 });
+    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: startSeconds });
     broadcastAdminPlayerUpdate(roomCode);
-    broadcastAdminPhaseUpdate(roomCode, 'night', 30);
+    broadcastAdminPhaseUpdate(roomCode, 'night', startSeconds);
     console.log(`Game started in room ${roomCode}`);
   });
 
@@ -520,7 +520,7 @@ function resolveAndAdvance(roomCode: string) {
     announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`, 'system');
     broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
   } else if (nextPhase === 'night' || nextPhase === 'day') {
-    const seconds = 30;
+    const seconds = game.customPhaseDuration ?? 30;
     gameManager.updateTimer(roomCode, seconds);
     announce(roomCode, pick(nextPhase === 'night' ? PHASE_NIGHT : PHASE_DAY), 'system');
     io.to(roomCode).emit('phase:changed', { phase: nextPhase, secondsRemaining: seconds });
@@ -715,10 +715,11 @@ adminNS.on('connection', (socket: any) => {
 
     announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
     announce(roomCode, pick(PHASE_NIGHT), 'system');
-    gameManager.updateTimer(roomCode, 30);
-    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: 30 });
+    const adminStartSeconds = game.customPhaseDuration ?? 30;
+
+    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: adminStartSeconds });
     broadcastAdminPlayerUpdate(roomCode);
-    broadcastAdminPhaseUpdate(roomCode, 'night', 30);
+    broadcastAdminPhaseUpdate(roomCode, 'night', adminStartSeconds);
     console.log(`[Admin] Game started in room ${roomCode}`);
   });
 

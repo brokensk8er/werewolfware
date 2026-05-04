@@ -38,70 +38,87 @@
       </div>
     </div>
 
-    <!-- Main 3-column layout -->
+    <!-- Mobile tab nav (hidden on desktop via CSS) -->
+    <nav id="mobile-tabs" class="hidden">
+      <button class="tab-btn active" data-tab="players">Players</button>
+      <button class="tab-btn" data-tab="controls">Controls</button>
+      <button class="tab-btn" data-tab="log">Log</button>
+    </nav>
+
+    <!-- Main layout -->
     <main id="main-layout" class="hidden">
 
-      <!-- LEFT: Players + Controls -->
+      <!-- LEFT: Players + Controls (desktop sidebar / mobile tab panes) -->
       <aside id="left-panel">
 
-        <section class="panel">
-          <div class="panel-header">
-            <h3>Players</h3>
-            <span id="player-count" class="badge">0</span>
-          </div>
-          <div id="player-list"></div>
-        </section>
+        <!-- Tab pane: Players -->
+        <div class="tab-pane tab-active" data-tab="players">
 
-        <!-- Lobby-only controls -->
-        <section id="lobby-controls" class="panel hidden">
-          <div class="panel-header"><h3>Lobby Controls</h3></div>
-          <div class="ctrl-group">
-            <label class="ctrl-label">Add Player</label>
-            <div class="picker-row">
-              <input type="text" id="add-player-input" class="input-sm" placeholder="Player name" maxlength="32">
-              <button id="add-player-btn" class="btn-secondary">Add</button>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Players</h3>
+              <span id="player-count" class="badge">0</span>
             </div>
-          </div>
-          <button id="start-game-btn" class="btn-primary full-width" disabled>▶ Start Game</button>
-          <p id="start-game-hint" class="muted" style="margin-top:0.4rem;text-align:center">Need at least 5 players</p>
-        </section>
+            <div id="player-list"></div>
+          </section>
 
-        <section class="panel">
-          <div class="panel-header"><h3>Phase Controls</h3></div>
-
-          <div class="control-row">
-            <span class="ctrl-label">Current Phase</span>
-            <span id="ctrl-phase" class="phase-pill">—</span>
-          </div>
-
-          <div class="control-row">
-            <span class="ctrl-label">Timer</span>
-            <span id="ctrl-timer" class="timer-display">—</span>
-          </div>
-
-          <div class="ctrl-group">
-            <label class="ctrl-label">Set timer (minutes)</label>
-            <div class="picker-row">
-              <input type="number" id="timer-input" value="1" min="1" max="60" step="0.5" class="input-sm">
-              <button id="set-timer-btn" class="btn-secondary">Set</button>
+          <!-- Lobby-only controls -->
+          <section id="lobby-controls" class="panel hidden">
+            <div class="panel-header"><h3>Lobby Controls</h3></div>
+            <div class="ctrl-group">
+              <label class="ctrl-label">Add Player</label>
+              <div class="picker-row">
+                <input type="text" id="add-player-input" class="input-sm" placeholder="Player name" maxlength="32">
+                <button id="add-player-btn" class="btn-secondary">Add</button>
+              </div>
             </div>
-          </div>
+            <button id="start-game-btn" class="btn-primary full-width" disabled>▶ Start Game</button>
+            <p id="start-game-hint" class="muted" style="margin-top:0.4rem;text-align:center">Need at least 5 players</p>
+          </section>
 
-          <button id="advance-phase-btn" class="btn-primary full-width">⏭ Advance Phase</button>
-          <button id="end-game-btn" class="btn-danger full-width" style="margin-top:0.5rem">🛑 End Game</button>
-        </section>
+        </div><!-- /tab-pane players -->
 
-        <section class="panel">
-          <div class="panel-header"><h3>Vote Tally</h3></div>
-          <div id="vote-tally">
-            <p class="muted">No active vote.</p>
-          </div>
-        </section>
+        <!-- Tab pane: Controls -->
+        <div class="tab-pane" data-tab="controls">
+
+          <section class="panel">
+            <div class="panel-header"><h3>Phase Controls</h3></div>
+
+            <div class="control-row">
+              <span class="ctrl-label">Current Phase</span>
+              <span id="ctrl-phase" class="phase-pill">—</span>
+            </div>
+
+            <div class="control-row">
+              <span class="ctrl-label">Timer</span>
+              <span id="ctrl-timer" class="timer-display">—</span>
+            </div>
+
+            <div class="ctrl-group">
+              <label class="ctrl-label">Set timer (minutes)</label>
+              <div class="picker-row">
+                <input type="number" id="timer-input" value="1" min="1" max="60" step="0.5" class="input-sm">
+                <button id="set-timer-btn" class="btn-secondary">Set</button>
+              </div>
+            </div>
+
+            <button id="advance-phase-btn" class="btn-primary full-width">⏭ Advance Phase</button>
+            <button id="end-game-btn" class="btn-danger full-width" style="margin-top:0.5rem">🛑 End Game</button>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header"><h3>Vote Tally</h3></div>
+            <div id="vote-tally">
+              <p class="muted">No active vote.</p>
+            </div>
+          </section>
+
+        </div><!-- /tab-pane controls -->
 
       </aside>
 
-      <!-- RIGHT: Event Log -->
-      <section id="right-panel">
+      <!-- RIGHT: Event Log (desktop column / mobile tab pane) -->
+      <section id="right-panel" class="tab-pane" data-tab="log">
         <div class="panel full-height">
           <div class="panel-header log-header">
             <h3>Event Log</h3>

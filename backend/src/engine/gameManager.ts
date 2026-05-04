@@ -86,7 +86,8 @@ export class GameManager {
     // Start with night phase
     game.phase = 'night';
     game.nightNumber = 1;
-    game.phaseEndsAt = new Date(Date.now() + 30 * 1000); // 30 seconds
+    const startDuration = game.customPhaseDuration ?? 30;
+    game.phaseEndsAt = new Date(Date.now() + startDuration * 1000);
     return true;
   }
 
@@ -299,6 +300,7 @@ export class GameManager {
   updateTimer(roomCode: string, seconds: number): boolean {
     const game = this.games.get(roomCode);
     if (!game) return false;
+    game.customPhaseDuration = seconds;
     game.phaseEndsAt = new Date(Date.now() + seconds * 1000);
     return true;
   }
