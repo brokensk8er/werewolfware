@@ -110,7 +110,7 @@
     async function checkAdminAndRedirect(user) {
       const snap = await getDoc(doc(db, 'users', user.uid));
       if (snap.exists() && snap.data().isAdmin === true) {
-        window.location.href = '/admin.html';
+        window.location.href = 'admin.html';
       } else {
         await auth.signOut();
         errorMsg.textContent = 'This account does not have admin access.';

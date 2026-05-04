@@ -73,13 +73,13 @@ const kickBtn       = document.getElementById('kick-btn');
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
-    window.location.href = '/login.html';
+    window.location.href = 'login.html';
     return;
   }
   const snap = await getDoc(doc(db, 'users', user.uid));
   if (!snap.exists() || snap.data().isAdmin !== true) {
     await signOut(auth);
-    window.location.href = '/login.html';
+    window.location.href = 'login.html';
     return;
   }
   topbarUser.textContent = user.email;
@@ -89,7 +89,7 @@ onAuthStateChanged(auth, async (user) => {
 
 logoutBtn.addEventListener('click', async () => {
   await signOut(auth);
-  window.location.href = '/login.html';
+  window.location.href = 'login.html';
 });
 
 // ─── Room connection ──────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ async function connectToRoom() {
   roomJoinBtn.textContent = 'Connecting…';
 
   const user = auth.currentUser;
-  if (!user) { window.location.href = '/login.html'; return; }
+  if (!user) { window.location.href = 'login.html'; return; }
   const token = await user.getIdToken();
 
   adminSocket = io('https://werewolfware.fly.dev/admin');
