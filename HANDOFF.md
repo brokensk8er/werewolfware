@@ -4,6 +4,60 @@ This document is a context dump for continuing work on the admin panel in a new 
 
 ---
 
+## Session 2 — Admin Simulation + Event Log (2026-05-04)
+
+### What Was Built
+
+The admin panel can now run a complete game without any real players. The full set of new socket events added this session:
+
+**Backend (`server.ts`) — new admin events:**
+- `admin:startGame` — starts the game from admin; handles role assignment and emits `game:started` to real (non-bot) sockets only
+- `admin:endGame` — tears down the active game, resets all admin watcher state, emits `admin:noGame` to all watching admin sockets
+- `admin:addPlayer` — adds a virtual bot player (ID prefixed `bot_`) to the lobby; bot players are skipped on socket emits throughout the server
+- `admin:removePlayer` — removes any player (bot or real) from lobby or mid-game; disconnects real player sockets
+- `admin:renamePlayer` — renames any player; `gameManager.renamePlayer()` was added for this
+- `admin:castVote` — submits a day vote on behalf of any player (admin simulation)
+- `admin:submitNightAction` — submits a night action (werewolf kill, seer investigate, doctor protect) on behalf of any player
+
+**Frontend (`admin.html` / `admin.js`):**
+- Lobby Controls panel (visible only in lobby phase): Add Player input, Start Game button with live readiness hint (min 5 players enforced)
+- End Game button in Phase Controls with confirm dialog
+- Timer input changed from seconds to minutes (floats allowed, e.g. 1.5; multiplied ×60 before sending)
+- Player modal is now context-aware: shows Rename, Change Role always; Submit Night Action (night phase + player has night action role); Cast Vote (day phase); Remove from Lobby / Force Eliminate / Kick based on phase
+
+**Vote notification system:**
+- Town-wide: ambiguous flavour text sent directly via `io.to(roomCode).emit('chat:message')` — bypasses `announce()` so it does NOT appear in the admin log
+- Admin log: clear `voter.name → Voted for target.name` entry pushed separately
+- Voter private: confirmation with target name + sardonic sign-off via `announcePrivate`
+
+### Common Points of Failure
+
+**1. `announce()` logs to admin — don't use it for player-only messages.**
+`announce()` calls both `io.to(roomCode).emit` AND `gameManager.pushAdminLog` + `emitToAdmins`. If you want a message that only players see (ambiguous flavour text, misdirection), emit `chat:message` directly to the room instead. The vote ambiguity fix this session was exactly this bug.
+
+**2. Bot player IDs must be checked before any `io.to(playerId).emit` call.**
+Bot players have no real socket. Any `io.to(botId).emit(...)` silently no-ops, which is fine — but if you ever iterate players and try to do something socket-specific (e.g. `io.sockets.sockets.get(playerId)`), always guard with `if (!playerId.startsWith('bot_'))`. The `admin:startGame` and `admin:removePlayer` handlers both do this.
+
+**3. Admin watcher cleanup on `admin:endGame`.**
+After ending a game, each watching admin socket's `socket.data.roomCode` must be cleared manually — otherwise the next `admin:createGame` call from that socket will think it's already in a room. The `admin:endGame` handler iterates `adminWatchers` and nulls `s.data.roomCode` before deleting the game.
+
+**4. `LogCategory` type in `types.ts`.**
+The valid categories are: `'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat'`. The admin log filter buttons in the UI cover: All, System, Chat, Seer, Werewolf, Private. `town` exists as a category but has no dedicated filter button — Town entries are visible under "All" only. If you add new log categories, add a matching filter button in `admin.html` and a matching entry in the `CAT_LABELS` map in `admin.js`.
+
+**5. `flyctl deploy` is required for any backend change.**
+Frontend pushes to `main` auto-deploy via GitHub Actions to GitHub Pages. Backend changes do nothing until `flyctl deploy` is run manually from the repo root. `fly` is not the right binary name on this machine — use `flyctl`.
+
+### What's Left / Next Work
+
+- **Event log refinements:** The log has no "clear" button, no scroll-to-top, no search/filter by player name. Entries stack up across the whole session with no way to segment by round/phase. A phase separator row (e.g. `── Night 2 ──`) injected on each `admin:phaseUpdate` would make the log much easier to read.
+- **Admin `admin:castVote` does not fire the vote notification messages** (ambiguous town chat + private confirmation). Only the player-side `vote:cast` handler does. If simulating votes via admin, players won't see the pebble-in-jar message. Fix: extract vote notification logic into a shared helper and call it from both handlers.
+- **No "clear game" / lobby reset without ending.** Once a game is ended, the admin must create a new one. There's no way to reset the lobby back to zero without the full end→create cycle.
+- **Min player count (5) is hardcoded from `ClassicMode.minPlayers`.** The `admin:startGame` handler currently hardcodes `5` in its error string rather than reading from the game mode. Should use `game.gameMode.minPlayers` for correctness if modes are ever added.
+- **Night action submission from admin has no "already submitted" guard.** Calling `admin:submitNightAction` twice for the same actor overwrites the previous action silently. That's probably fine for simulation but worth noting.
+
+
+---
+
 ## What This Project Is
 
 A real-time social deduction (Werewolf) game. Backend is Express + Socket.io on **Fly.io** (`https://werewolfware.fly.dev`). Frontend is static files on **GitHub Pages** (`brokensk8er.github.io/werewolfware`). One game runs at a time — no room codes anywhere in the UI.
