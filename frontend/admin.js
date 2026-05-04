@@ -1,0 +1,331 @@
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import {
+  getAuth,
+  onAuthStateChanged,
+  signOut,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import {
+  getFirestore,
+  doc,
+  getDoc,
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAXcvi644izGZhK8nPGlkfV4vAc3ZWPH8w",
+  authDomain: "nodicetools.firebaseapp.com",
+  databaseURL: "https://nodicetools-default-rtdb.firebaseio.com",
+  projectId: "nodicetools",
+  storageBucket: "nodicetools.firebasestorage.app",
+  messagingSenderId: "387258889697",
+  appId: "1:387258889697:web:5467488ab109ea67b74ea0",
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+let adminSocket = null;
+let currentRoomCode = null;
+let activeFilterCat  = 'all';
+let selectedPlayerId = null;
+
+// live countdown
+let timerInterval = null;
+let timerEndsAt   = null;
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+
+const authGate      = document.getElementById('auth-gate');
+const dashboard     = document.getElementById('dashboard');
+const roomPicker    = document.getElementById('room-picker');
+const mainLayout    = document.getElementById('main-layout');
+
+const topbarRoom    = document.getElementById('topbar-room');
+const topbarPhase   = document.getElementById('topbar-phase');
+const topbarUser    = document.getElementById('topbar-user');
+const logoutBtn     = document.getElementById('logout-btn');
+
+const roomInput     = document.getElementById('room-input');
+const roomJoinBtn   = document.getElementById('room-join-btn');
+const pickerError   = document.getElementById('picker-error');
+
+const playerList    = document.getElementById('player-list');
+const playerCount   = document.getElementById('player-count');
+const ctrlPhase     = document.getElementById('ctrl-phase');
+const ctrlTimer     = document.getElementById('ctrl-timer');
+const timerInput    = document.getElementById('timer-input');
+const setTimerBtn   = document.getElementById('set-timer-btn');
+const advanceBtn    = document.getElementById('advance-phase-btn');
+const voteTally     = document.getElementById('vote-tally');
+const eventLog      = document.getElementById('event-log');
+
+const playerModal   = document.getElementById('player-modal');
+const modalName     = document.getElementById('modal-player-name');
+const modalClose    = document.getElementById('modal-close');
+const roleSelect    = document.getElementById('role-select');
+const changeRoleBtn = document.getElementById('change-role-btn');
+const eliminateBtn  = document.getElementById('eliminate-btn');
+const kickBtn       = document.getElementById('kick-btn');
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    window.location.href = '/login.html';
+    return;
+  }
+  const snap = await getDoc(doc(db, 'users', user.uid));
+  if (!snap.exists() || snap.data().isAdmin !== true) {
+    await signOut(auth);
+    window.location.href = '/login.html';
+    return;
+  }
+  topbarUser.textContent = user.email;
+  authGate.classList.add('hidden');
+  dashboard.classList.remove('hidden');
+});
+
+logoutBtn.addEventListener('click', async () => {
+  await signOut(auth);
+  window.location.href = '/login.html';
+});
+
+// ─── Room connection ──────────────────────────────────────────────────────────
+
+roomJoinBtn.addEventListener('click', connectToRoom);
+roomInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') connectToRoom(); });
+
+async function connectToRoom() {
+  const code = roomInput.value.trim().toUpperCase();
+  if (!code) { pickerError.textContent = 'Enter a room code.'; return; }
+
+  pickerError.textContent = '';
+  roomJoinBtn.disabled = true;
+  roomJoinBtn.textContent = 'Connecting…';
+
+  const user = auth.currentUser;
+  if (!user) { window.location.href = '/login.html'; return; }
+  const token = await user.getIdToken();
+
+  adminSocket = io('/admin');
+
+  adminSocket.on('connect', () => {
+    adminSocket.emit('admin:auth', { token, roomCode: code });
+  });
+
+  adminSocket.on('admin:authed', (data) => {
+    currentRoomCode = data.roomCode;
+    topbarRoom.textContent  = `Room: ${data.roomCode}`;
+    topbarRoom.classList.remove('hidden');
+    topbarPhase.classList.remove('hidden');
+    roomPicker.classList.add('hidden');
+    mainLayout.classList.remove('hidden');
+  });
+
+  adminSocket.on('admin:state', (data) => {
+    renderPlayers(data.players);
+    renderPhase(data.phase, data.secondsRemaining);
+    renderVotes(data.votes);
+    data.log.forEach(appendLogEntry);
+  });
+
+  adminSocket.on('admin:logEntry',     appendLogEntry);
+  adminSocket.on('admin:playerUpdate', (d) => renderPlayers(d.players));
+  adminSocket.on('admin:phaseUpdate',  (d) => renderPhase(d.phase, d.secondsRemaining));
+  adminSocket.on('admin:voteUpdate',   (d) => renderVotes(d.votes));
+
+  adminSocket.on('error', (data) => {
+    pickerError.textContent = data.message;
+    roomJoinBtn.disabled = false;
+    roomJoinBtn.textContent = 'Connect';
+    if (adminSocket) { adminSocket.disconnect(); adminSocket = null; }
+  });
+}
+
+// ─── Phase controls ───────────────────────────────────────────────────────────
+
+advanceBtn.addEventListener('click', () => {
+  if (adminSocket) adminSocket.emit('admin:forcePhase');
+});
+
+setTimerBtn.addEventListener('click', () => {
+  const secs = parseInt(timerInput.value, 10);
+  if (!secs || secs < 1) return;
+  if (adminSocket) adminSocket.emit('admin:setTimer', { seconds: secs });
+});
+
+// ─── Player modal ─────────────────────────────────────────────────────────────
+
+modalClose.addEventListener('click', closeModal);
+playerModal.addEventListener('click', (e) => { if (e.target === playerModal) closeModal(); });
+
+changeRoleBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  adminSocket.emit('admin:changeRole', { playerId: selectedPlayerId, roleId: roleSelect.value });
+  closeModal();
+});
+
+eliminateBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  if (!confirm('Force-eliminate this player?')) return;
+  adminSocket.emit('admin:eliminate', { playerId: selectedPlayerId });
+  closeModal();
+});
+
+kickBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  if (!confirm('Kick this player from the game?')) return;
+  adminSocket.emit('admin:kick', { playerId: selectedPlayerId });
+  closeModal();
+});
+
+function openModal(playerId, playerName, currentRoleId) {
+  selectedPlayerId = playerId;
+  modalName.textContent = playerName;
+  roleSelect.value = currentRoleId || 'villager';
+  playerModal.classList.remove('hidden');
+}
+
+function closeModal() {
+  playerModal.classList.add('hidden');
+  selectedPlayerId = null;
+}
+
+// ─── Log filters ──────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.filter-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilterCat = btn.dataset.cat;
+    applyLogFilter();
+  });
+});
+
+function applyLogFilter() {
+  document.querySelectorAll('.log-entry').forEach((el) => {
+    const cat = el.dataset.cat;
+    el.classList.toggle('hidden', activeFilterCat !== 'all' && cat !== activeFilterCat);
+  });
+}
+
+// ─── Render helpers ───────────────────────────────────────────────────────────
+
+const ROLE_COLORS = {
+  werewolf: '#c0392b',
+  seer:     '#8e44ad',
+  doctor:   '#27ae60',
+  villager: '#7f8c8d',
+};
+
+const CAT_LABELS = {
+  system:   { label: 'System',   color: '#c9a227' },
+  town:     { label: 'Town',     color: '#3498db' },
+  chat:     { label: 'Chat',     color: '#95a5a6' },
+  seer:     { label: 'Seer',     color: '#8e44ad' },
+  werewolf: { label: 'Wolf',     color: '#c0392b' },
+  private:  { label: 'Private',  color: '#e67e22' },
+};
+
+function renderPlayers(players) {
+  playerCount.textContent = players.length;
+  playerList.innerHTML = '';
+
+  players.forEach((p) => {
+    const roleColor = ROLE_COLORS[p.role?.id] || '#7f8c8d';
+    const card = document.createElement('div');
+    card.className = 'player-card' + (p.alive ? '' : ' dead');
+    card.innerHTML = `
+      <div class="pc-left">
+        <span class="pc-status">${p.alive ? '🟢' : '💀'}</span>
+        <span class="pc-name">${escHtml(p.name)}</span>
+      </div>
+      <div class="pc-right">
+        <span class="role-pill" style="--rc:${roleColor}">${escHtml(p.role?.name ?? '?')}</span>
+        <button class="btn-ghost btn-sm">⋯</button>
+      </div>
+    `;
+    card.querySelector('button').addEventListener('click', () => {
+      openModal(p.id, p.name, p.role?.id);
+    });
+    playerList.appendChild(card);
+  });
+}
+
+function renderPhase(phase, secondsRemaining) {
+  ctrlPhase.textContent = phase.toUpperCase();
+  ctrlPhase.className = `phase-pill phase-${phase}`;
+  topbarPhase.textContent = phase.toUpperCase();
+  topbarPhase.className = `topbar-badge phase-badge phase-${phase}`;
+
+  // Reset countdown
+  clearInterval(timerInterval);
+  if (secondsRemaining > 0 && phase !== 'lobby' && phase !== 'ended') {
+    timerEndsAt = Date.now() + secondsRemaining * 1000;
+    tickTimer();
+    timerInterval = setInterval(tickTimer, 1000);
+  } else {
+    ctrlTimer.textContent = '—';
+  }
+}
+
+function tickTimer() {
+  const remaining = Math.max(0, Math.round((timerEndsAt - Date.now()) / 1000));
+  ctrlTimer.textContent = `${remaining}s`;
+  if (remaining <= 0) clearInterval(timerInterval);
+}
+
+function renderVotes(votes) {
+  if (!votes || votes.length === 0) {
+    voteTally.innerHTML = '<p class="muted">No active vote.</p>';
+    return;
+  }
+  // Tally
+  const tally = new Map();
+  votes.forEach(({ targetId, targetName, voterName }) => {
+    if (!tally.has(targetId)) tally.set(targetId, { name: targetName, voters: [] });
+    tally.get(targetId).voters.push(voterName);
+  });
+  const sorted = [...tally.values()].sort((a, b) => b.voters.length - a.voters.length);
+  voteTally.innerHTML = sorted.map((t) => `
+    <div class="vote-row">
+      <span class="vote-name">${escHtml(t.name)}</span>
+      <span class="vote-count">${t.voters.length}</span>
+      <span class="vote-voters">${t.voters.map(escHtml).join(', ')}</span>
+    </div>
+  `).join('');
+}
+
+function appendLogEntry(entry) {
+  const meta  = CAT_LABELS[entry.category] || { label: entry.category, color: '#888' };
+  const time  = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.dataset.cat = entry.category;
+
+  const metaStr = entry.meta ? ` <span class="log-meta">${escHtml(entry.meta)}</span>` : '';
+
+  el.innerHTML = `
+    <span class="log-time">${time}</span>
+    <span class="log-cat" style="--cc:${meta.color}">${meta.label}</span>
+    <span class="log-sender">${escHtml(entry.senderName)}</span>
+    <span class="log-text">${escHtml(entry.text)}${metaStr}</span>
+  `;
+
+  if (activeFilterCat !== 'all' && entry.category !== activeFilterCat) {
+    el.classList.add('hidden');
+  }
+
+  eventLog.appendChild(el);
+  eventLog.scrollTop = eventLog.scrollHeight;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+  }[c]));
+}

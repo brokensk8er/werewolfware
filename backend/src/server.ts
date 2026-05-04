@@ -5,26 +5,79 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { GameManager } from './engine/gameManager.js';
 import { ClassicMode } from './gamemodes/classic.js';
-import { ClientEvents, ServerEvents } from './types.js';
+import { ClientEvents, ServerEvents, AdminClientEvents, AdminServerEvents, LogCategory } from './types.js';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { Villager } from './roles/villager.js';
+import { Werewolf } from './roles/werewolf.js';
+import { Seer } from './roles/seer.js';
+import { Doctor } from './roles/doctor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app: Express = express();
 const httpServer = createServer(app);
 const io = new SocketIOServer<ClientEvents, ServerEvents>(httpServer, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-  },
+  cors: { origin: '*', methods: ['GET', 'POST'] },
 });
+
+// Admin Socket.io namespace
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const adminNS: any = io.of('/admin');
+
+// Roles available for on-the-fly changes
+const ROLE_REGISTRY: Record<string, any> = {
+  villager: Villager,
+  werewolf: Werewolf,
+  seer: Seer,
+  doctor: Doctor,
+};
+
+// Track which admin sockets are watching which room: roomCode -> Set<socketId>
+const adminWatchers = new Map<string, Set<string>>();
+
+// Firebase Admin SDK — initialized when FIREBASE_SERVICE_ACCOUNT env var is set
+let firebaseAdminAuth: any = null;
+let firebaseAdminDb: any = null;
+
+async function initFirebaseAdmin() {
+  const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!sa) {
+    console.warn('[Admin] FIREBASE_SERVICE_ACCOUNT not set — admin auth disabled');
+    return;
+  }
+  try {
+    const { initializeApp, cert } = await import('firebase-admin/app');
+    const { getAuth } = await import('firebase-admin/auth');
+    const { getFirestore } = await import('firebase-admin/firestore');
+    const serviceAccount = JSON.parse(sa);
+    const adminApp = initializeApp({ credential: cert(serviceAccount) }, 'admin');
+    firebaseAdminAuth = getAuth(adminApp);
+    firebaseAdminDb = getFirestore(adminApp);
+    console.log('[Admin] Firebase Admin initialized');
+  } catch (e) {
+    console.error('[Admin] Firebase Admin init failed:', e);
+  }
+}
+
+async function verifyAdminToken(token: string): Promise<string | null> {
+  if (!firebaseAdminAuth || !firebaseAdminDb) return null;
+  try {
+    const decoded = await firebaseAdminAuth.verifyIdToken(token);
+    const uid: string = decoded.uid;
+    const userDoc = await firebaseAdminDb.collection('users').doc(uid).get();
+    if (!userDoc.exists) return null;
+    const data = userDoc.data();
+    return data?.isAdmin === true ? uid : null;
+  } catch {
+    return null;
+  }
+}
 
 const gameManager = new GameManager();
 const PORT = process.env.PORT || 3000;
 
-// Serve frontend from /frontend directory (or public)
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use(express.json());
 
-// API routes for development
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
@@ -81,31 +134,90 @@ const PHASE_DAY = [
   '☀️ Morning. The survivors gather in the square.',
 ];
 
-function announce(roomCode: string, text: string, senderId = '__system__', senderName = '📢 Announcement') {
+// Emit to all admins watching a room
+function emitToAdmins(roomCode: string, event: string, data: any) {
+  const watchers = adminWatchers.get(roomCode);
+  if (!watchers) return;
+  for (const socketId of watchers) {
+    (adminNS.to(socketId) as any).emit(event, data);
+  }
+}
+
+function broadcastAdminPlayerUpdate(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return;
+  const players = Array.from(game.players.values()).map((p) => ({
+    id: p.id,
+    name: p.name,
+    role: p.role,
+    team: p.team,
+    alive: p.alive,
+  }));
+  emitToAdmins(roomCode, 'admin:playerUpdate', { players });
+}
+
+function broadcastAdminPhaseUpdate(roomCode: string, phase: string, secondsRemaining: number) {
+  emitToAdmins(roomCode, 'admin:phaseUpdate', { phase, secondsRemaining });
+}
+
+function broadcastAdminVoteUpdate(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return;
+  const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+    voterId,
+    voterName: game.players.get(voterId)?.name || 'Unknown',
+    targetId,
+    targetName: game.players.get(targetId)?.name || 'Unknown',
+  }));
+  emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+}
+
+// Announce to room + log to admin
+function announce(
+  roomCode: string,
+  text: string,
+  category: LogCategory = 'system',
+  senderName = '📢 Announcement',
+) {
   io.to(roomCode).emit('chat:message', {
-    senderId,
+    senderId: '__system__',
     senderName,
     text,
     timestamp: new Date(),
   });
+  const entry = gameManager.pushAdminLog(roomCode, { category, senderName, text });
+  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
 }
 
-function announcePrivate(targetId: string, text: string, senderName = '🔮 The Spirits') {
+// Private message to one player + log to admin (with meta)
+function announcePrivate(
+  targetId: string,
+  text: string,
+  senderName = '🔮 The Spirits',
+  category: LogCategory = 'private',
+  roomCode?: string,
+  meta?: string,
+) {
   io.to(targetId).emit('chat:message', {
     senderId: '__system__',
     senderName,
     text,
     timestamp: new Date(),
   });
+  if (roomCode) {
+    const entry = gameManager.pushAdminLog(roomCode, { category, senderName, text, meta });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  }
 }
 
-// Socket.io handlers
+// ─── Player namespace ─────────────────────────────────────────────────────────
+
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
   socket.on('lobby:create', (data) => {
     const roomCode = Math.random().toString(36).substring(7).toUpperCase();
-    const game = gameManager.createGame(roomCode, socket.id, ClassicMode);
+    gameManager.createGame(roomCode, socket.id, ClassicMode);
     gameManager.addPlayer(roomCode, socket.id, data.playerName);
 
     socket.join(roomCode);
@@ -115,6 +227,7 @@ io.on('connection', (socket) => {
     io.to(roomCode).emit('lobby:updated', {
       players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
     });
+    broadcastAdminPlayerUpdate(roomCode);
     console.log(`Game created: ${roomCode}`);
   });
 
@@ -136,20 +249,17 @@ io.on('connection', (socket) => {
     socket.join(roomCode);
     socket.emit('lobby:joined', { roomCode, playerId: socket.id });
 
-    // Notify all players in room of updated lobby
     const snapshot = gameManager.getSnapshot(roomCode);
     io.to(roomCode).emit('lobby:updated', {
       players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
     });
+    broadcastAdminPlayerUpdate(roomCode);
     console.log(`Player ${playerName} joined room ${roomCode}`);
   });
 
   socket.on('game:start', () => {
     const roomCode = getRoomCode(socket);
-    if (!roomCode) {
-      socket.emit('error', { message: 'Not in a room' });
-      return;
-    }
+    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
     if (!gameManager.startGame(roomCode)) {
       socket.emit('error', { message: 'Cannot start game yet' });
@@ -159,7 +269,6 @@ io.on('connection', (socket) => {
     const game = gameManager.getGame(roomCode);
     if (!game) return;
 
-    // Notify all players game started with their role
     for (const [playerId, player] of game.players) {
       io.to(playerId).emit('game:started', {
         playerId,
@@ -170,116 +279,39 @@ io.on('connection', (socket) => {
           alive: p.alive,
         })),
       });
-      announcePrivate(playerId, `You are the ${player.role.name}. ${player.role.description}`, '🃏 Your Role');
+      announcePrivate(
+        playerId,
+        `You are the ${player.role.name}. ${player.role.description}`,
+        '🃏 Your Role',
+        'private',
+        roomCode,
+        `→ ${player.name}`,
+      );
     }
 
-    announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`);
-    announce(roomCode, pick(PHASE_NIGHT));
+    announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
+    announce(roomCode, pick(PHASE_NIGHT), 'system');
+    gameManager.updateTimer(roomCode, 30);
 
-    io.to(roomCode).emit('phase:changed', {
-      phase: 'night',
-      secondsRemaining: 30,
-    });
-
+    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: 30 });
+    broadcastAdminPlayerUpdate(roomCode);
+    broadcastAdminPhaseUpdate(roomCode, 'night', 30);
     console.log(`Game started in room ${roomCode}`);
   });
 
   socket.on('game:advancePhase', () => {
     const roomCode = getRoomCode(socket);
-    if (!roomCode) {
-      socket.emit('error', { message: 'Not in a room' });
-      return;
-    }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game) return;
-
-    // If ending night phase, resolve night actions
-    if (game.phase === 'night') {
-      const { eliminated, investigations } = gameManager.resolveNight(roomCode);
-
-      if (eliminated.length === 0) {
-        announce(roomCode, 'The village stirs uneasily. Somehow, everyone survived the night.');
-      }
-
-      for (const player of eliminated) {
-        io.to(roomCode).emit('player:eliminated', {
-          playerId: player.id,
-          playerName: player.name,
-          role: player.role.name,
-        });
-        announce(roomCode, `${player.name} was ${pick(WEREWOLF_DEATHS)}. They were a ${player.role.name}.`);
-      }
-
-      // Send investigation results only to seers (private whisper)
-      for (const [seerId, investigation] of game.seerInvestigations) {
-        const targetName = game.players.get(investigation.targetId)?.name;
-        if (targetName) {
-          io.to(seerId).emit('seer:investigation', {
-            targetName,
-            role: investigation.role.name,
-          });
-          announcePrivate(seerId, `${pick(SEER_WHISPERS)} ${targetName} is a ${investigation.role.name}.`);
-        }
-      }
-    }
-
-    // If ending day phase, resolve votes
-    if (game.phase === 'day') {
-      const { eliminated, voteCount } = gameManager.resolveDay(roomCode);
-      if (eliminated) {
-        io.to(roomCode).emit('vote:result', {
-          eliminated: eliminated.id,
-          eliminatedName: eliminated.name,
-          voteCount,
-        });
-        io.to(roomCode).emit('player:eliminated', {
-          playerId: eliminated.id,
-          playerName: eliminated.name,
-          role: eliminated.role.name,
-        });
-        announce(roomCode, `The village has spoken. ${eliminated.name} was ${pick(VOTE_DEATHS)} with ${voteCount} vote${voteCount !== 1 ? 's' : ''}. They were a ${eliminated.role.name}.`);
-      } else {
-        announce(roomCode, 'The vote was inconclusive. No one was eliminated. The werewolves smirk.');
-      }
-    }
-
-    // Advance to next phase
-    const nextPhase = gameManager.advancePhase(roomCode);
-
-    if (nextPhase === 'ended' && game.winner && game.winReason) {
-      io.to(roomCode).emit('game:ended', {
-        winner: game.winner,
-        winReason: game.winReason,
-      });
-      announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`);
-    } else if (nextPhase === 'night') {
-      announce(roomCode, pick(PHASE_NIGHT));
-      io.to(roomCode).emit('phase:changed', {
-        phase: nextPhase,
-        secondsRemaining: 30,
-      });
-    } else if (nextPhase === 'day') {
-      announce(roomCode, pick(PHASE_DAY));
-      io.to(roomCode).emit('phase:changed', {
-        phase: nextPhase,
-        secondsRemaining: 30,
-      });
-    }
-
-    console.log(`Phase advanced to ${nextPhase} in room ${roomCode}`);
+    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
+    resolveAndAdvance(roomCode);
   });
 
-  socket.on('game:setMode', (data) => {
+  socket.on('game:setMode', (_data) => {
     // TODO: implement game mode switching in lobby
   });
 
   socket.on('vote:cast', (data) => {
     const roomCode = getRoomCode(socket);
-    if (!roomCode) {
-      socket.emit('error', { message: 'Not in a room' });
-      return;
-    }
+    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
     const game = gameManager.getGame(roomCode);
     if (!game || game.phase !== 'day') {
@@ -293,7 +325,6 @@ io.on('connection', (socket) => {
     gameManager.castVote(roomCode, socket.id, data.targetId);
     const target = game.players.get(data.targetId);
 
-    // Broadcast updated vote tally
     const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
       voterId,
       voterName: game.players.get(voterId)?.name || 'Unknown',
@@ -302,15 +333,13 @@ io.on('connection', (socket) => {
     }));
 
     io.to(roomCode).emit('vote:updated', { votes });
+    emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
     console.log(`${voter.name} voted for ${target?.name}`);
   });
 
   socket.on('night:action', (data) => {
     const roomCode = getRoomCode(socket);
-    if (!roomCode) {
-      socket.emit('error', { message: 'Not in a room' });
-      return;
-    }
+    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
     const game = gameManager.getGame(roomCode);
     if (!game || game.phase !== 'night') {
@@ -326,15 +355,21 @@ io.on('connection', (socket) => {
 
     gameManager.recordNightAction(roomCode, socket.id, data.targetId);
     socket.emit('night:actionRecorded', { targetId: data.targetId });
-    console.log(`${player.role.name} ${player.name} targeted ${game.players.get(data.targetId)?.name}`);
+
+    const target = game.players.get(data.targetId);
+    const logText = `${player.role.name} ${player.name} targeted ${target?.name ?? data.targetId}`;
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: player.role.id === 'werewolf' ? 'werewolf' : 'seer',
+      senderName: player.name,
+      text: logText,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    console.log(logText);
   });
 
   socket.on('chat:send', (data) => {
     const roomCode = getRoomCode(socket);
-    if (!roomCode) {
-      socket.emit('error', { message: 'Not in a room' });
-      return;
-    }
+    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
     const game = gameManager.getGame(roomCode);
     if (!game) return;
@@ -351,6 +386,13 @@ io.on('connection', (socket) => {
 
     gameManager.addChatMessage(roomCode, socket.id, sender.name, data.text);
     io.to(roomCode).emit('chat:message', message);
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'chat',
+      senderName: sender.name,
+      text: data.text,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
     console.log(`${sender.name}: ${data.text}`);
   });
 
@@ -359,7 +401,234 @@ io.on('connection', (socket) => {
   });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Open http://localhost:${PORT} in your browser`);
+// ─── Shared phase resolution (used by both player and admin advance) ──────────
+
+function resolveAndAdvance(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return;
+
+  if (game.phase === 'night') {
+    const { eliminated } = gameManager.resolveNight(roomCode);
+
+    if (eliminated.length === 0) {
+      announce(roomCode, 'The village stirs uneasily. Somehow, everyone survived the night.', 'system');
+    }
+
+    for (const player of eliminated) {
+      io.to(roomCode).emit('player:eliminated', {
+        playerId: player.id,
+        playerName: player.name,
+        role: player.role.name,
+      });
+      announce(roomCode, `${player.name} was ${pick(WEREWOLF_DEATHS)}. They were a ${player.role.name}.`, 'system');
+    }
+
+    for (const [seerId, investigation] of game.seerInvestigations) {
+      const targetName = game.players.get(investigation.targetId)?.name;
+      if (targetName) {
+        io.to(seerId).emit('seer:investigation', { targetName, role: investigation.role.name });
+        const seerPlayer = game.players.get(seerId);
+        announcePrivate(
+          seerId,
+          `${pick(SEER_WHISPERS)} ${targetName} is a ${investigation.role.name}.`,
+          '🔮 The Spirits',
+          'seer',
+          roomCode,
+          `→ ${seerPlayer?.name ?? seerId}`,
+        );
+      }
+    }
+  }
+
+  if (game.phase === 'day') {
+    const { eliminated, voteCount } = gameManager.resolveDay(roomCode);
+    if (eliminated) {
+      io.to(roomCode).emit('vote:result', {
+        eliminated: eliminated.id,
+        eliminatedName: eliminated.name,
+        voteCount,
+      });
+      io.to(roomCode).emit('player:eliminated', {
+        playerId: eliminated.id,
+        playerName: eliminated.name,
+        role: eliminated.role.name,
+      });
+      announce(
+        roomCode,
+        `The village has spoken. ${eliminated.name} was ${pick(VOTE_DEATHS)} with ${voteCount} vote${voteCount !== 1 ? 's' : ''}. They were a ${eliminated.role.name}.`,
+        'system',
+      );
+    } else {
+      announce(roomCode, 'The vote was inconclusive. No one was eliminated. The werewolves smirk.', 'system');
+    }
+    broadcastAdminVoteUpdate(roomCode);
+  }
+
+  const nextPhase = gameManager.advancePhase(roomCode);
+
+  if (nextPhase === 'ended' && game.winner && game.winReason) {
+    io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason });
+    announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`, 'system');
+    broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
+  } else if (nextPhase === 'night' || nextPhase === 'day') {
+    const seconds = 30;
+    gameManager.updateTimer(roomCode, seconds);
+    announce(roomCode, pick(nextPhase === 'night' ? PHASE_NIGHT : PHASE_DAY), 'system');
+    io.to(roomCode).emit('phase:changed', { phase: nextPhase, secondsRemaining: seconds });
+    broadcastAdminPhaseUpdate(roomCode, nextPhase, seconds);
+  }
+
+  broadcastAdminPlayerUpdate(roomCode);
+  console.log(`Phase advanced to ${nextPhase} in room ${roomCode}`);
+}
+
+// ─── Admin namespace ──────────────────────────────────────────────────────────
+
+adminNS.on('connection', (socket: any) => {
+  console.log(`[Admin] socket connected: ${socket.id}`);
+
+  socket.on('admin:auth', async (data: { token: string; roomCode: string }) => {
+    const { token, roomCode } = data;
+
+    const uid = await verifyAdminToken(token);
+    if (!uid) {
+      socket.emit('error', { message: 'Unauthorized — not an admin account' });
+      return;
+    }
+
+    // Track this admin socket as watching the room
+    if (!adminWatchers.has(roomCode)) adminWatchers.set(roomCode, new Set());
+    adminWatchers.get(roomCode)!.add(socket.id);
+    socket.data.roomCode = roomCode;
+
+    socket.emit('admin:authed', { uid, roomCode });
+
+    // Send full current state
+    const fullSnapshot = gameManager.getFullSnapshot(roomCode);
+    if (fullSnapshot) {
+      socket.emit('admin:state', fullSnapshot);
+    } else {
+      socket.emit('error', { message: `Room ${roomCode} not found` });
+    }
+
+    console.log(`[Admin] uid=${uid} watching room ${roomCode}`);
+  });
+
+  socket.on('admin:forcePhase', () => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+    resolveAndAdvance(roomCode);
+  });
+
+  socket.on('admin:changeRole', (data: { playerId: string; roleId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const newRole = ROLE_REGISTRY[data.roleId];
+    if (!newRole) { socket.emit('error', { message: `Unknown role: ${data.roleId}` }); return; }
+
+    const player = gameManager.changePlayerRole(roomCode, data.playerId, newRole);
+    if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
+
+    // Notify the player of their new role
+    io.to(data.playerId).emit('game:started', {
+      playerId: data.playerId,
+      role: player.role,
+      players: Array.from(gameManager.getGame(roomCode)!.players.values()).map((p) => ({
+        id: p.id, name: p.name, alive: p.alive,
+      })),
+    });
+    announcePrivate(
+      data.playerId,
+      `Your role has been changed to ${player.role.name}. ${player.role.description}`,
+      '🎭 Role Change',
+      'private',
+      roomCode,
+      `→ ${player.name}`,
+    );
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'system',
+      senderName: '🎭 Admin',
+      text: `Role of ${player.name} changed to ${player.role.name}`,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    broadcastAdminPlayerUpdate(roomCode);
+  });
+
+  socket.on('admin:eliminate', (data: { playerId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const player = gameManager.forceEliminate(roomCode, data.playerId);
+    if (!player) { socket.emit('error', { message: 'Player not found or already eliminated' }); return; }
+
+    io.to(roomCode).emit('player:eliminated', {
+      playerId: player.id,
+      playerName: player.name,
+      role: player.role.name,
+    });
+    announce(roomCode, `⚡ ${player.name} was removed from the game by the moderator.`, 'system');
+    broadcastAdminPlayerUpdate(roomCode);
+  });
+
+  socket.on('admin:kick', (data: { playerId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    const player = game.players.get(data.playerId);
+    if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
+
+    // Remove from game state
+    game.players.delete(data.playerId);
+
+    // Disconnect their socket
+    const playerSocket = io.sockets.sockets.get(data.playerId);
+    if (playerSocket) {
+      playerSocket.leave(roomCode);
+      playerSocket.emit('error', { message: 'You have been removed from the game by the moderator.' });
+    }
+
+    // Notify room
+    const snapshot = gameManager.getSnapshot(roomCode);
+    io.to(roomCode).emit('lobby:updated', {
+      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
+    });
+    announce(roomCode, `${player.name} was removed from the game.`, 'system');
+    broadcastAdminPlayerUpdate(roomCode);
+  });
+
+  socket.on('admin:setTimer', (data: { seconds: number }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    gameManager.updateTimer(roomCode, data.seconds);
+    io.to(roomCode).emit('phase:changed', { phase: game.phase, secondsRemaining: data.seconds });
+    broadcastAdminPhaseUpdate(roomCode, game.phase, data.seconds);
+    console.log(`[Admin] Timer set to ${data.seconds}s in room ${roomCode}`);
+  });
+
+  socket.on('disconnect', () => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (roomCode) {
+      adminWatchers.get(roomCode)?.delete(socket.id);
+      if (adminWatchers.get(roomCode)?.size === 0) adminWatchers.delete(roomCode);
+    }
+    console.log(`[Admin] socket disconnected: ${socket.id}`);
+  });
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+
+initFirebaseAdmin().then(() => {
+  httpServer.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Open http://localhost:${PORT} in your browser`);
+  });
 });

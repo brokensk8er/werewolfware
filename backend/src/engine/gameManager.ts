@@ -1,4 +1,4 @@
-import { GameState, GamePhase, Player, Role, GameMode } from '../types.js';
+import { GameState, GamePhase, Player, Role, GameMode, AdminLogEntry, LogCategory } from '../types.js';
 import { PhaseManager } from './phaseManager.js';
 import { WinChecker } from './winChecker.js';
 
@@ -27,9 +27,22 @@ export class GameManager {
       protectedPlayers: new Set(),
       seerInvestigations: new Map(),
       chatMessages: [],
+      adminLog: [],
     };
     this.games.set(roomCode, game);
     return game;
+  }
+
+  pushAdminLog(roomCode: string, entry: Omit<AdminLogEntry, 'id' | 'timestamp'>): AdminLogEntry | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const full: AdminLogEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date(),
+      ...entry,
+    };
+    game.adminLog.push(full);
+    return full;
   }
 
   getGame(roomCode: string): GameState | undefined {
@@ -219,6 +232,59 @@ export class GameManager {
 
   deleteGame(roomCode: string): void {
     this.games.delete(roomCode);
+  }
+
+  getFullSnapshot(roomCode: string): any {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const secondsRemaining = game.phaseEndsAt
+      ? Math.max(0, Math.round((game.phaseEndsAt.getTime() - Date.now()) / 1000))
+      : 0;
+    return {
+      roomCode: game.roomCode,
+      phase: game.phase,
+      secondsRemaining,
+      players: Array.from(game.players.values()).map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.role,
+        team: p.team,
+        alive: p.alive,
+      })),
+      votes: Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+        voterId,
+        voterName: game.players.get(voterId)?.name || 'Unknown',
+        targetId,
+        targetName: game.players.get(targetId)?.name || 'Unknown',
+      })),
+      log: game.adminLog,
+    };
+  }
+
+  changePlayerRole(roomCode: string, playerId: string, newRole: Role): Player | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const player = game.players.get(playerId);
+    if (!player) return null;
+    player.role = newRole;
+    player.team = newRole.team;
+    return player;
+  }
+
+  forceEliminate(roomCode: string, playerId: string): Player | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const player = game.players.get(playerId);
+    if (!player || !player.alive) return null;
+    player.alive = false;
+    return player;
+  }
+
+  updateTimer(roomCode: string, seconds: number): boolean {
+    const game = this.games.get(roomCode);
+    if (!game) return false;
+    game.phaseEndsAt = new Date(Date.now() + seconds * 1000);
+    return true;
   }
 
   getSnapshot(roomCode: string, playerId?: string): any {

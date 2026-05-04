@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{uid} {
+      // Users read their own doc
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      // Users create their own doc on first sign-in
+      // Enforce: isAdmin=false, ticketVerified=false, attendanceCount=0
+      allow create: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.isAdmin == false
+        && request.resource.data.ticketVerified == false
+        && request.resource.data.attendanceCount == 0;
+
+      // Users update their own doc, but cannot promote themselves
+      allow update: if request.auth != null && request.auth.uid == uid
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['isAdmin', 'attendanceCount', 'badges', 'ticketVerified']);
+
+      // Admins can update any user doc (verify tickets, increment attendance)
+      allow update: if request.auth != null
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

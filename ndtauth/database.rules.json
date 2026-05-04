@@ -1,0 +1,85 @@
+{
+  "rules": {
+    "nodice": {
+      "poll": {
+        ".read": true,
+        ".write": "auth != null",
+        ".validate": "newData.hasChildren(['question', 'options', 'active']) || newData.child('active').val() === false",
+        "question": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 120"
+        },
+        "options": {
+          ".validate": "newData.hasChildren(['0', '1'])",
+          "$idx": {
+            ".validate": "($idx == '0' || $idx == '1' || $idx == '2' || $idx == '3' || $idx == '4') && newData.isString() && newData.val().length > 0 && newData.val().length <= 80"
+          }
+        },
+        "active":   { ".validate": "newData.isBoolean()" },
+        "revealed": { ".validate": "newData.isBoolean()" },
+        "ts":       { ".validate": "newData.isNumber()" }
+      },
+      "votes": {
+        ".read": true,
+        ".write": "auth != null",
+        "$voterId": {
+          ".write": true,
+          ".validate": "newData.isString() && (newData.val() == '0' || newData.val() == '1' || newData.val() == '2' || newData.val() == '3' || newData.val() == '4') && !data.exists()"
+        }
+      },
+      "encounters": {
+        "{encounterId}": {
+          ".read": true,
+          ".write": "auth != null",
+          "dragonHP":    { ".validate": "newData.isNumber()" },
+          "dragonMaxHP": { ".validate": "newData.isNumber()" },
+          "status":      { ".validate": "newData.isString() && (newData.val() == 'active' || newData.val() == 'defeated' || newData.val() == 'waiting')" },
+          "startedAt":   { ".validate": "newData.isNumber()" },
+          "name":        { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 80" },
+          "background":  { ".validate": "newData.isString() && (newData.val() == 'cave' || newData.val() == 'volcano' || newData.val() == 'ice' || newData.val() == 'ruins' || newData.val() == 'abyss' || newData.val() == 'forest')" },
+          "graphic": {
+            "type":  { ".validate": "newData.isString() && (newData.val() == 'emoji' || newData.val() == 'image')" },
+            "value": { ".validate": "newData.isString() && newData.val().length > 0" },
+            "label": { ".validate": "newData.isString()" }
+          },
+          "speech": {
+            "text":      { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 300" },
+            "timestamp": { ".validate": "newData.isNumber()" }
+          },
+          "ability": {
+            "id":        { ".validate": "newData.isString()" },
+            "name":      { ".validate": "newData.isString()" },
+            "timestamp": { ".validate": "newData.isNumber()" }
+          },
+          "activePlayers": {
+            "{userId}": {
+              ".write": "auth != null",
+              "lastAttackTime": { ".validate": "newData.isNumber()" },
+              "onCooldown":     { ".validate": "newData.isBoolean()" },
+              "cooldownUntil":  { ".validate": "newData.isNumber()" }
+            }
+          },
+          "recentAttacks": {
+            "{attackId}": {
+              ".write": "auth != null",
+              "userId":     { ".validate": "newData.isString()" },
+              "rollResult": { ".validate": "newData.isString() && (newData.val() == 'go_time' || newData.val() == 'no_time')" },
+              "timestamp":  { ".validate": "newData.isNumber()" }
+            }
+          },
+          "counterAttackLog": {
+            "{counterId}": {
+              ".write": "auth != null",
+              "targetUserId": { ".validate": "newData.isString()" },
+              "timestamp":    { ".validate": "newData.isNumber()" },
+              "cooldownUntil":{ ".validate": "newData.isNumber()" }
+            }
+          }
+        }
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

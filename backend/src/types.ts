@@ -1,3 +1,15 @@
+// Admin log
+export type LogCategory = 'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat';
+
+export interface AdminLogEntry {
+  id: string;
+  timestamp: Date;
+  category: LogCategory;
+  senderName: string;
+  text: string;
+  meta?: string; // e.g. "→ Alice" for targeted private messages
+}
+
 // Game state types
 export type GamePhase = 'lobby' | 'night' | 'day' | 'ended';
 export type PlayerTeam = 'village' | 'werewolf' | 'solo';
@@ -35,6 +47,7 @@ export interface GameState {
   protectedPlayers: Set<string>; // playerIds protected by doctor
   seerInvestigations: Map<string, { seerId: string; targetId: string; role: Role }>;
   chatMessages: ChatMessage[]; // town square chat
+  adminLog: AdminLogEntry[];
 }
 
 // Role interface
@@ -58,6 +71,38 @@ export interface GameMode {
   minPlayers: number;
   maxPlayers: number;
   getRoles(playerCount: number): Role[];
+}
+
+// Admin socket events (client -> server, /admin namespace)
+export interface AdminClientEvents {
+  'admin:auth': (data: { token: string; roomCode: string }) => void;
+  'admin:forcePhase': () => void;
+  'admin:changeRole': (data: { playerId: string; roleId: string }) => void;
+  'admin:eliminate': (data: { playerId: string }) => void;
+  'admin:kick': (data: { playerId: string }) => void;
+  'admin:setTimer': (data: { seconds: number }) => void;
+}
+
+// Admin socket events (server -> client, /admin namespace)
+export interface AdminServerEvents {
+  'admin:authed': (data: { uid: string; roomCode: string }) => void;
+  'admin:state': (data: {
+    roomCode: string;
+    phase: string;
+    secondsRemaining: number;
+    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean }>;
+    log: AdminLogEntry[];
+    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
+  }) => void;
+  'admin:logEntry': (data: AdminLogEntry) => void;
+  'admin:playerUpdate': (data: {
+    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean }>;
+  }) => void;
+  'admin:phaseUpdate': (data: { phase: string; secondsRemaining: number }) => void;
+  'admin:voteUpdate': (data: {
+    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
+  }) => void;
+  error: (data: { message: string }) => void;
 }
 
 // Socket.io events (client -> server)
