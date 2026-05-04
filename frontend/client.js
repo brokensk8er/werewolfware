@@ -106,6 +106,7 @@ createSubmit.addEventListener('click', () => {
     showError('Please enter your name');
     return;
   }
+  gameState.playerName = name;
   socket.emit('lobby:create', { playerName: name });
   creatorName.value = '';
 });
@@ -117,6 +118,7 @@ joinSubmit.addEventListener('click', () => {
     showError('Please enter room code and name');
     return;
   }
+  gameState.playerName = name;
   socket.emit('lobby:join', { roomCode: code, playerName: name });
   roomCode.value = '';
   playerName.value = '';
@@ -158,6 +160,8 @@ socket.on('game:started', (data) => {
   showGameScreen();
   updateRoleCard();
   updateGamePlayerList();
+  document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
+  document.getElementById('nameplate-role').textContent = data.role?.name || '';
 });
 
 socket.on('phase:changed', (data) => {

@@ -260,6 +260,35 @@ h3 {
 }
 
 /* Game phase content */
+#nameplate {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-left: 4px solid var(--primary);
+  border-radius: 0.5rem;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+#nameplate-name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+#nameplate-role {
+  font-size: 0.85rem;
+  color: var(--primary);
+  background: rgba(139, 0, 0, 0.2);
+  border: 1px solid var(--primary);
+  border-radius: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
