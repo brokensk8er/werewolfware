@@ -637,6 +637,186 @@ adminNS.on('connection', (socket: any) => {
     broadcastAdminPlayerUpdate(roomCode);
   });
 
+  socket.on('admin:startGame', () => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    if (!gameManager.startGame(roomCode)) {
+      socket.emit('error', { message: `Need at least ${5} players to start` });
+      return;
+    }
+
+    const game = gameManager.getGame(roomCode)!;
+
+    for (const [playerId, player] of game.players) {
+      if (!playerId.startsWith('bot_')) {
+        io.to(playerId).emit('game:started', {
+          playerId,
+          role: player.role,
+          players: Array.from(game.players.values()).map((p) => ({ id: p.id, name: p.name, alive: p.alive })),
+        });
+        announcePrivate(
+          playerId,
+          `You are the ${player.role.name}. ${player.role.description}`,
+          '🃏 Your Role',
+          'private',
+          roomCode,
+          `→ ${player.name}`,
+        );
+      }
+    }
+
+    announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
+    announce(roomCode, pick(PHASE_NIGHT), 'system');
+    gameManager.updateTimer(roomCode, 30);
+    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: 30 });
+    broadcastAdminPlayerUpdate(roomCode);
+    broadcastAdminPhaseUpdate(roomCode, 'night', 30);
+    console.log(`[Admin] Game started in room ${roomCode}`);
+  });
+
+  socket.on('admin:endGame', () => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    io.to(roomCode).emit('game:ended', { winner: 'village' as any, winReason: 'Game ended by moderator.' });
+    announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
+
+    const watchers = adminWatchers.get(roomCode);
+    adminWatchers.delete(roomCode);
+    gameManager.deleteGame(roomCode);
+
+    if (watchers) {
+      for (const socketId of watchers) {
+        const s = adminNS.sockets.get(socketId);
+        if (s) {
+          s.data.roomCode = undefined;
+          s.emit('admin:noGame');
+        }
+      }
+    }
+    console.log(`[Admin] Game ${roomCode} ended by admin`);
+  });
+
+  socket.on('admin:addPlayer', (data: { playerName: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+    if (game.phase !== 'lobby') { socket.emit('error', { message: 'Can only add players in lobby' }); return; }
+
+    const botId = `bot_${Math.random().toString(36).slice(2, 10)}`;
+    const player = gameManager.addPlayer(roomCode, botId, data.playerName.trim());
+    if (!player) { socket.emit('error', { message: 'Could not add player' }); return; }
+
+    const snapshot = gameManager.getSnapshot(roomCode);
+    io.to(roomCode).emit('lobby:updated', {
+      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
+    });
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'system',
+      senderName: '🎭 Admin',
+      text: `Added player: ${player.name}`,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    broadcastAdminPlayerUpdate(roomCode);
+    console.log(`[Admin] Added player ${player.name} (${botId})`);
+  });
+
+  socket.on('admin:removePlayer', (data: { playerId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+
+    const player = game.players.get(data.playerId);
+    if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
+
+    game.players.delete(data.playerId);
+
+    if (!data.playerId.startsWith('bot_')) {
+      const playerSocket = io.sockets.sockets.get(data.playerId);
+      if (playerSocket) {
+        playerSocket.leave(roomCode);
+        playerSocket.emit('error', { message: 'You have been removed from the game by the moderator.' });
+      }
+    }
+
+    const snapshot = gameManager.getSnapshot(roomCode);
+    io.to(roomCode).emit('lobby:updated', {
+      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
+    });
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'system',
+      senderName: '🎭 Admin',
+      text: `Removed player: ${player.name}`,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    broadcastAdminPlayerUpdate(roomCode);
+  });
+
+  socket.on('admin:renamePlayer', (data: { playerId: string; newName: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const oldName = gameManager.getGame(roomCode)?.players.get(data.playerId)?.name;
+    const renamed = gameManager.renamePlayer(roomCode, data.playerId, data.newName.trim());
+    if (!renamed) { socket.emit('error', { message: 'Player not found' }); return; }
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'system',
+      senderName: '🎭 Admin',
+      text: `Renamed "${oldName}" → "${renamed.name}"`,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    broadcastAdminPlayerUpdate(roomCode);
+  });
+
+  socket.on('admin:castVote', (data: { voterId: string; targetId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game || game.phase !== 'day') { socket.emit('error', { message: 'Not in day phase' }); return; }
+
+    gameManager.castVote(roomCode, data.voterId, data.targetId);
+
+    const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+      voterId,
+      voterName: game.players.get(voterId)?.name || 'Unknown',
+      targetId,
+      targetName: game.players.get(targetId)?.name || 'Unknown',
+    }));
+    io.to(roomCode).emit('vote:updated', { votes });
+    emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+  });
+
+  socket.on('admin:submitNightAction', (data: { actorId: string; targetId: string }) => {
+    const roomCode: string | undefined = socket.data.roomCode;
+    if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
+
+    const game = gameManager.getGame(roomCode);
+    if (!game || game.phase !== 'night') { socket.emit('error', { message: 'Not in night phase' }); return; }
+
+    const actor = game.players.get(data.actorId);
+    if (!actor || !actor.role?.hasNightAction) { socket.emit('error', { message: 'Player has no night action' }); return; }
+
+    gameManager.recordNightAction(roomCode, data.actorId, data.targetId);
+
+    const target = game.players.get(data.targetId);
+    const logText = `${actor.role.name} ${actor.name} targeted ${target?.name ?? data.targetId}`;
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: actor.role.id === 'werewolf' ? 'werewolf' : 'seer',
+      senderName: actor.name,
+      text: logText,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  });
+
   socket.on('admin:setTimer', (data: { seconds: number }) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }

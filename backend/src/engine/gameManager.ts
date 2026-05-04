@@ -287,6 +287,15 @@ export class GameManager {
     return player;
   }
 
+  renamePlayer(roomCode: string, playerId: string, newName: string): Player | null {
+    const game = this.games.get(roomCode);
+    if (!game) return null;
+    const player = game.players.get(playerId);
+    if (!player) return null;
+    player.name = newName;
+    return player;
+  }
+
   updateTimer(roomCode: string, seconds: number): boolean {
     const game = this.games.get(roomCode);
     if (!game) return false;

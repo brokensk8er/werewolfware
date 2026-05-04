@@ -26,9 +26,11 @@ const db   = getFirestore(app);
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let adminSocket     = null;
-let activeFilterCat = 'all';
+let adminSocket      = null;
+let activeFilterCat  = 'all';
 let selectedPlayerId = null;
+let currentPhase     = 'lobby';
+let currentPlayers   = [];
 
 let timerInterval = null;
 let timerEndsAt   = null;
@@ -54,16 +56,34 @@ const ctrlTimer     = document.getElementById('ctrl-timer');
 const timerInput    = document.getElementById('timer-input');
 const setTimerBtn   = document.getElementById('set-timer-btn');
 const advanceBtn    = document.getElementById('advance-phase-btn');
+const endGameBtn    = document.getElementById('end-game-btn');
 const voteTally     = document.getElementById('vote-tally');
 const eventLog      = document.getElementById('event-log');
 
-const playerModal   = document.getElementById('player-modal');
-const modalName     = document.getElementById('modal-player-name');
-const modalClose    = document.getElementById('modal-close');
-const roleSelect    = document.getElementById('role-select');
-const changeRoleBtn = document.getElementById('change-role-btn');
-const eliminateBtn  = document.getElementById('eliminate-btn');
-const kickBtn       = document.getElementById('kick-btn');
+// Lobby controls
+const lobbyControls   = document.getElementById('lobby-controls');
+const addPlayerInput  = document.getElementById('add-player-input');
+const addPlayerBtn    = document.getElementById('add-player-btn');
+const startGameBtn    = document.getElementById('start-game-btn');
+const startGameHint   = document.getElementById('start-game-hint');
+
+// Modal
+const playerModal      = document.getElementById('player-modal');
+const modalName        = document.getElementById('modal-player-name');
+const modalClose       = document.getElementById('modal-close');
+const renameInput      = document.getElementById('rename-input');
+const renameBtn        = document.getElementById('rename-btn');
+const roleSelect       = document.getElementById('role-select');
+const changeRoleBtn    = document.getElementById('change-role-btn');
+const nightActionGroup = document.getElementById('night-action-group');
+const nightTargetSel   = document.getElementById('night-target-select');
+const nightActionBtn   = document.getElementById('night-action-btn');
+const voteGroup        = document.getElementById('vote-group');
+const voteTargetSel    = document.getElementById('vote-target-select');
+const voteBtn          = document.getElementById('vote-btn');
+const removePlayerBtn  = document.getElementById('remove-player-btn');
+const eliminateBtn     = document.getElementById('eliminate-btn');
+const kickBtn          = document.getElementById('kick-btn');
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -109,6 +129,9 @@ async function connectToGame(user) {
   adminSocket.on('admin:noGame', () => {
     noGamePanel.classList.remove('hidden');
     mainLayout.classList.add('hidden');
+    topbarPhase.classList.add('hidden');
+    currentPhase = 'lobby';
+    currentPlayers = [];
   });
 
   adminSocket.on('admin:state', (data) => {
@@ -147,14 +170,63 @@ setTimerBtn.addEventListener('click', () => {
   if (adminSocket) adminSocket.emit('admin:setTimer', { seconds: secs });
 });
 
+endGameBtn.addEventListener('click', () => {
+  if (!adminSocket) return;
+  if (!confirm('End the current game? This cannot be undone.')) return;
+  adminSocket.emit('admin:endGame');
+});
+
+// ─── Lobby controls ───────────────────────────────────────────────────────────
+
+startGameBtn.addEventListener('click', () => {
+  if (adminSocket) adminSocket.emit('admin:startGame');
+});
+
+addPlayerBtn.addEventListener('click', addPlayerFromInput);
+
+addPlayerInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addPlayerFromInput();
+});
+
+function addPlayerFromInput() {
+  const name = addPlayerInput.value.trim();
+  if (!name || !adminSocket) return;
+  adminSocket.emit('admin:addPlayer', { playerName: name });
+  addPlayerInput.value = '';
+  addPlayerInput.focus();
+}
+
 // ─── Player modal ─────────────────────────────────────────────────────────────
 
 modalClose.addEventListener('click', closeModal);
 playerModal.addEventListener('click', (e) => { if (e.target === playerModal) closeModal(); });
 
+renameBtn.addEventListener('click', () => {
+  const name = renameInput.value.trim();
+  if (!adminSocket || !selectedPlayerId || !name) return;
+  adminSocket.emit('admin:renamePlayer', { playerId: selectedPlayerId, newName: name });
+  closeModal();
+});
+
 changeRoleBtn.addEventListener('click', () => {
   if (!adminSocket || !selectedPlayerId) return;
   adminSocket.emit('admin:changeRole', { playerId: selectedPlayerId, roleId: roleSelect.value });
+  closeModal();
+});
+
+nightActionBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  const targetId = nightTargetSel.value;
+  if (!targetId) return;
+  adminSocket.emit('admin:submitNightAction', { actorId: selectedPlayerId, targetId });
+  closeModal();
+});
+
+voteBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  const targetId = voteTargetSel.value;
+  if (!targetId) return;
+  adminSocket.emit('admin:castVote', { voterId: selectedPlayerId, targetId });
   closeModal();
 });
 
@@ -172,11 +244,53 @@ kickBtn.addEventListener('click', () => {
   closeModal();
 });
 
-function openModal(playerId, playerName, currentRoleId) {
-  selectedPlayerId = playerId;
-  modalName.textContent = playerName;
-  roleSelect.value = currentRoleId || 'villager';
+removePlayerBtn.addEventListener('click', () => {
+  if (!adminSocket || !selectedPlayerId) return;
+  if (!confirm('Remove this player from the lobby?')) return;
+  adminSocket.emit('admin:removePlayer', { playerId: selectedPlayerId });
+  closeModal();
+});
+
+function openModal(player) {
+  selectedPlayerId = player.id;
+  modalName.textContent = player.name;
+  renameInput.value = player.name;
+  roleSelect.value = player.role?.id || 'villager';
+
+  // Lobby vs in-game action buttons
+  const inLobby = currentPhase === 'lobby';
+  removePlayerBtn.classList.toggle('hidden', !inLobby);
+  eliminateBtn.classList.toggle('hidden', inLobby || !player.alive);
+  kickBtn.classList.toggle('hidden', inLobby);
+
+  // Night action: show when night phase and this player has a night action role
+  const hasNightAction = player.role?.hasNightAction && player.alive;
+  const showNight = currentPhase === 'night' && hasNightAction;
+  nightActionGroup.classList.toggle('hidden', !showNight);
+  if (showNight) {
+    populateTargetSelect(nightTargetSel, player.id, true);
+  }
+
+  // Vote: show when day phase and player is alive
+  const showVote = currentPhase === 'day' && player.alive;
+  voteGroup.classList.toggle('hidden', !showVote);
+  if (showVote) {
+    populateTargetSelect(voteTargetSel, player.id, true);
+  }
+
   playerModal.classList.remove('hidden');
+}
+
+function populateTargetSelect(selectEl, excludeId, aliveOnly) {
+  selectEl.innerHTML = '';
+  currentPlayers
+    .filter((p) => p.id !== excludeId && (!aliveOnly || p.alive))
+    .forEach((p) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name + (p.alive ? '' : ' 💀');
+      selectEl.appendChild(opt);
+    });
 }
 
 function closeModal() {
@@ -221,6 +335,7 @@ const CAT_LABELS = {
 };
 
 function renderPlayers(players) {
+  currentPlayers = players;
   playerCount.textContent = players.length;
   playerList.innerHTML = '';
 
@@ -228,28 +343,48 @@ function renderPlayers(players) {
     const roleColor = ROLE_COLORS[p.role?.id] || '#7f8c8d';
     const card = document.createElement('div');
     card.className = 'player-card' + (p.alive ? '' : ' dead');
+    const roleName = currentPhase === 'lobby' ? '—' : (p.role?.name ?? '?');
     card.innerHTML = `
       <div class="pc-left">
         <span class="pc-status">${p.alive ? '🟢' : '💀'}</span>
         <span class="pc-name">${escHtml(p.name)}</span>
       </div>
       <div class="pc-right">
-        <span class="role-pill" style="--rc:${roleColor}">${escHtml(p.role?.name ?? '?')}</span>
+        <span class="role-pill" style="--rc:${roleColor}">${escHtml(roleName)}</span>
         <button class="btn-ghost btn-sm">⋯</button>
       </div>
     `;
-    card.querySelector('button').addEventListener('click', () => {
-      openModal(p.id, p.name, p.role?.id);
-    });
+    card.querySelector('button').addEventListener('click', () => openModal(p));
     playerList.appendChild(card);
   });
+
+  updateLobbyStartButton(players.length);
+}
+
+function updateLobbyStartButton(count) {
+  if (currentPhase !== 'lobby') return;
+  const MIN = 5;
+  startGameBtn.disabled = count < MIN;
+  if (count < MIN) {
+    startGameHint.textContent = `Need at least ${MIN} players (${MIN - count} more)`;
+  } else {
+    startGameHint.textContent = `${count} players ready — good to go!`;
+  }
 }
 
 function renderPhase(phase, secondsRemaining) {
+  currentPhase = phase;
+
   ctrlPhase.textContent = phase.toUpperCase();
   ctrlPhase.className = `phase-pill phase-${phase}`;
   topbarPhase.textContent = phase.toUpperCase();
   topbarPhase.className = `topbar-badge phase-badge phase-${phase}`;
+
+  // Show lobby controls only in lobby phase
+  lobbyControls.classList.toggle('hidden', phase !== 'lobby');
+
+  // Update start button state based on current player count
+  if (phase === 'lobby') updateLobbyStartButton(currentPlayers.length);
 
   clearInterval(timerInterval);
   if (secondsRemaining > 0 && phase !== 'lobby' && phase !== 'ended') {

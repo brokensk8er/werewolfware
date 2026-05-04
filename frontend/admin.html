@@ -52,6 +52,20 @@
           <div id="player-list"></div>
         </section>
 
+        <!-- Lobby-only controls -->
+        <section id="lobby-controls" class="panel hidden">
+          <div class="panel-header"><h3>Lobby Controls</h3></div>
+          <div class="ctrl-group">
+            <label class="ctrl-label">Add Player</label>
+            <div class="picker-row">
+              <input type="text" id="add-player-input" class="input-sm" placeholder="Player name" maxlength="32">
+              <button id="add-player-btn" class="btn-secondary">Add</button>
+            </div>
+          </div>
+          <button id="start-game-btn" class="btn-primary full-width" disabled>▶ Start Game</button>
+          <p id="start-game-hint" class="muted" style="margin-top:0.4rem;text-align:center">Need at least 5 players</p>
+        </section>
+
         <section class="panel">
           <div class="panel-header"><h3>Phase Controls</h3></div>
 
@@ -74,6 +88,7 @@
           </div>
 
           <button id="advance-phase-btn" class="btn-primary full-width">⏭ Advance Phase</button>
+          <button id="end-game-btn" class="btn-danger full-width" style="margin-top:0.5rem">🛑 End Game</button>
         </section>
 
         <section class="panel">
@@ -116,6 +131,13 @@
       </div>
       <div class="modal-body">
         <div class="ctrl-group">
+          <label class="ctrl-label">Rename Player</label>
+          <div class="picker-row">
+            <input type="text" id="rename-input" class="input-sm" placeholder="New name" maxlength="32">
+            <button id="rename-btn" class="btn-secondary">Rename</button>
+          </div>
+        </div>
+        <div class="ctrl-group">
           <label class="ctrl-label">Change Role</label>
           <select id="role-select" class="input-sm full-width">
             <option value="villager">Villager</option>
@@ -125,9 +147,24 @@
           </select>
           <button id="change-role-btn" class="btn-secondary full-width" style="margin-top:0.5rem">Apply Role Change</button>
         </div>
+        <div id="night-action-group" class="ctrl-group hidden">
+          <label class="ctrl-label">Submit Night Action</label>
+          <div class="picker-row">
+            <select id="night-target-select" class="input-sm"></select>
+            <button id="night-action-btn" class="btn-secondary">Submit</button>
+          </div>
+        </div>
+        <div id="vote-group" class="ctrl-group hidden">
+          <label class="ctrl-label">Cast Vote</label>
+          <div class="picker-row">
+            <select id="vote-target-select" class="input-sm"></select>
+            <button id="vote-btn" class="btn-secondary">Vote</button>
+          </div>
+        </div>
         <div class="modal-actions">
-          <button id="eliminate-btn" class="btn-danger">⚡ Force Eliminate</button>
-          <button id="kick-btn" class="btn-danger">🚫 Kick from Game</button>
+          <button id="remove-player-btn" class="btn-danger hidden">🗑 Remove from Lobby</button>
+          <button id="eliminate-btn" class="btn-danger hidden">⚡ Force Eliminate</button>
+          <button id="kick-btn" class="btn-danger hidden">🚫 Kick from Game</button>
         </div>
       </div>
     </div>
