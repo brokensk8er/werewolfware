@@ -64,6 +64,16 @@ h3 {
   font-size: 1.1rem;
 }
 
+.admin-login-link {
+  display: block;
+  margin-top: 3rem;
+  font-size: 0.8rem;
+  color: #555;
+  text-decoration: none;
+  text-align: center;
+}
+.admin-login-link:hover { color: #888; }
+
 /* Buttons */
 .btn {
   padding: 0.75rem 1.5rem;
