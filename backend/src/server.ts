@@ -21,7 +21,7 @@ const gameManager = new GameManager();
 const PORT = process.env.PORT || 3000;
 
 // Serve frontend from /frontend directory (or public)
-app.use(express.static(path.join(__dirname, '../../frontend')));
+app.use(express.static(path.join(__dirname, '../frontend')));
 app.use(express.json());
 
 // API routes for development

@@ -6,6 +6,10 @@
 app = 'werewolfware'
 primary_region = 'ord'
 
+[build]
+  dockerfile = "backend/Dockerfile"
+  context = "."
+
 [env]
   PORT = "8080"
   NODE_ENV = "production"

@@ -25,8 +25,8 @@ RUN npm ci --omit=dev
 # Copy built app from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy frontend files to serve
-COPY ../frontend ./frontend
+# Copy frontend files to serve (from repo root)
+COPY frontend ./frontend
 
 # Expose port
 EXPOSE 8080
