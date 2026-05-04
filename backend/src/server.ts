@@ -94,6 +94,26 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+const VOTE_CAST_AMBIGUOUS = [
+  'Somewhere, the clink of a pebble falls into a counting jar. A vote has been cast.',
+  'A name is written in chalk. The tally grows by one.',
+  'A stone is placed, quietly and with purpose. The count shifts.',
+  'The scratch of a quill on parchment. Someone has made their choice.',
+  'A bead slides on the abacus. The village inches toward a verdict.',
+  'One more finger points in silence. The reckoning draws closer.',
+  'A notch is carved. The count does not lie.',
+];
+
+const VOTE_CAST_PRIVATE = [
+  'Your vote is cast. May your deity of choice have mercy on their soul.',
+  'It is done. History will judge you — probably harshly.',
+  'Your stone is in the jar. What you have started, the village will finish.',
+  'You have spoken. Whether wisely or not remains to be seen.',
+  'The name is written. Light a candle for them tonight.',
+  'Your conscience is your own business. The vote, however, is now everyone\'s.',
+  'Done. Try not to think about it too much.',
+];
+
 const WEREWOLF_DEATHS = [
   'found torn apart at the edge of the woods',
   'discovered in several pieces behind the mill',
@@ -336,6 +356,17 @@ io.on('connection', (socket) => {
 
     io.to(roomCode).emit('vote:updated', { votes });
     emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+
+    announce(roomCode, pick(VOTE_CAST_AMBIGUOUS), 'town');
+    announcePrivate(
+      socket.id,
+      `You have voted for ${target?.name ?? 'someone'}. ${pick(VOTE_CAST_PRIVATE)}`,
+      '🗳️ Your Vote',
+      'private',
+      roomCode,
+      `→ ${voter.name}`,
+    );
+
     console.log(`${voter.name} voted for ${target?.name}`);
   });
 
