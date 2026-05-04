@@ -165,9 +165,9 @@ advanceBtn.addEventListener('click', () => {
 });
 
 setTimerBtn.addEventListener('click', () => {
-  const secs = parseInt(timerInput.value, 10);
-  if (!secs || secs < 1) return;
-  if (adminSocket) adminSocket.emit('admin:setTimer', { seconds: secs });
+  const mins = parseFloat(timerInput.value);
+  if (!mins || mins <= 0) return;
+  if (adminSocket) adminSocket.emit('admin:setTimer', { seconds: Math.round(mins * 60) });
 });
 
 endGameBtn.addEventListener('click', () => {
