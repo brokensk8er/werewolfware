@@ -1,5 +1,5 @@
 // Admin log
-export type LogCategory = 'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat';
+export type LogCategory = 'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat' | 'ghost';
 
 export interface AdminLogEntry {
   id: string;
@@ -118,6 +118,7 @@ export interface ClientEvents {
   'vote:cast': (data: { targetId: string }) => void;
   'night:action': (data: { targetId: string }) => void;
   'chat:send': (data: { text: string }) => void;
+  'ghost:send': (data: { text: string }) => void;
 }
 
 // Socket.io events (server -> client)
@@ -156,6 +157,7 @@ export interface ServerEvents {
     voteCount: number;
   }) => void;
   'chat:message': (data: ChatMessage) => void;
+  'ghost:message': (data: ChatMessage) => void;
   'game:ended': (data: { winner: PlayerTeam; winReason: string }) => void;
   error: (data: { message: string }) => void;
 }
