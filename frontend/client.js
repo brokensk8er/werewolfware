@@ -34,6 +34,8 @@ let gameState = {
   isHost: false,
 };
 
+let timerInterval = null;
+
 // DOM elements
 const lobbyScreen = document.getElementById('lobby-screen');
 const lobbyWaitScreen = document.getElementById('lobby-wait-screen');
@@ -184,23 +186,15 @@ socket.on('night:actionRecorded', (data) => {
 });
 
 socket.on('vote:updated', (data) => {
-  // Update vote display in real-time
   const voteMap = new Map();
   for (const vote of data.votes) {
-    if (!voteMap.has(vote.targetId)) {
-      voteMap.set(vote.targetId, { name: vote.targetName, count: 0 });
-    }
-    voteMap.get(vote.targetId).count++;
+    voteMap.set(vote.targetId, (voteMap.get(vote.targetId) || 0) + 1);
   }
-
-  // Update vote cards with vote counts
-  const cards = document.querySelectorAll('#vote-list .player-card');
-  cards.forEach((card) => {
-    const playerId = card.dataset.playerId;
-    const voteInfo = voteMap.get(playerId);
-    if (voteInfo) {
-      card.innerHTML = `${card.textContent.split(' ')[0]}<br><small>(${voteInfo.count} vote${voteInfo.count !== 1 ? 's' : ''})</small>`;
-    }
+  // Only touch the count badge — never rewrite the card's name or structure
+  document.querySelectorAll('#vote-list .player-card').forEach((card) => {
+    const count = voteMap.get(card.dataset.playerId) || 0;
+    const badge = card.querySelector('.vote-count-badge');
+    if (badge) badge.textContent = count > 0 ? ` (${count} vote${count !== 1 ? 's' : ''})` : '';
   });
 });
 
@@ -311,31 +305,32 @@ function updatePhaseDisplay(phase, secondsRemaining) {
 }
 
 function startTimer(seconds) {
+  clearInterval(timerInterval);
   let remaining = seconds;
   timer.textContent = `${remaining}s`;
-
-  const interval = setInterval(() => {
+  timerInterval = setInterval(() => {
     remaining--;
     timer.textContent = `${remaining}s`;
-    if (remaining <= 0) {
-      clearInterval(interval);
-    }
+    if (remaining <= 0) clearInterval(timerInterval);
   }, 1000);
 }
 
 function renderVoteList() {
   voteList.innerHTML = '';
   gameState.players.forEach((player) => {
-    if (!player.alive) return; // Only show alive players
+    if (!player.alive) return;
     const card = document.createElement('div');
     card.className = 'player-card alive';
     card.dataset.playerId = player.id;
-    card.textContent = player.name;
+
+    const nameEl = document.createElement('span');
+    nameEl.textContent = player.name;
+    const badge = document.createElement('small');
+    badge.className = 'vote-count-badge';
+    card.append(nameEl, badge);
+
     card.addEventListener('click', () => {
-      // Clear previous selection
-      document.querySelectorAll('#vote-list .player-card').forEach((c) => {
-        c.classList.remove('selected');
-      });
+      document.querySelectorAll('#vote-list .player-card').forEach((c) => c.classList.remove('selected'));
       socket.emit('vote:cast', { targetId: player.id });
       card.classList.add('selected');
     });
