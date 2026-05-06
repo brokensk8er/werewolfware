@@ -353,6 +353,7 @@ const CAT_LABELS = {
   seer:     { label: 'Seer',     color: '#8e44ad' },
   werewolf: { label: 'Wolf',     color: '#c0392b' },
   private:  { label: 'Private',  color: '#e67e22' },
+  ghost:    { label: 'Ghost',    color: '#9b59b6' },
 };
 
 function renderPlayers(players) {

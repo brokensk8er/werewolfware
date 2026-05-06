@@ -115,6 +115,62 @@
     </div>
   </div>
 
+  <!-- Death overlay — full screen flash, shown briefly on elimination -->
+  <div id="death-overlay" class="death-overlay hidden">
+    <div class="death-content">
+      <div class="death-skull">💀</div>
+      <h1 class="death-title">YOU HAVE DIED</h1>
+      <p class="death-sub">You have joined the realm of the dead…</p>
+    </div>
+  </div>
+
+  <!-- Ghost screen — shown after death overlay dismisses -->
+  <div id="ghost-screen" class="ghost-screen hidden">
+    <div class="ghost-container">
+
+      <div class="ghost-nameplate">
+        <span>💀</span>
+        <span id="ghost-nameplate-name"></span>
+        <span id="ghost-nameplate-role"></span>
+        <span id="ghost-phase-badge" class="ghost-phase-badge"></span>
+      </div>
+
+      <div class="ghost-layout">
+        <aside class="ghost-sidebar">
+          <div class="ghost-section">
+            <h3>👥 Still Alive</h3>
+            <ul id="ghost-alive-list"></ul>
+          </div>
+          <div class="ghost-section">
+            <h3>💀 The Dead</h3>
+            <ul id="ghost-dead-list"></ul>
+          </div>
+        </aside>
+
+        <div class="ghost-main">
+          <div class="ghost-chat">
+            <div class="ghost-chat-header">
+              <h3>👻 Ghost Chat</h3>
+              <span class="ghost-chat-hint">Only the dead can read this</span>
+            </div>
+            <div id="ghost-messages" class="ghost-messages"></div>
+            <div class="ghost-input-row">
+              <input type="text" id="ghost-input" class="input ghost-input" placeholder="Whisper to the dead…" maxlength="200">
+              <button id="ghost-send-btn" class="btn-ghost-send">Send</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ghost-game-ended" class="ghost-game-ended hidden">
+        <h2 id="ghost-winner-title">Game Over</h2>
+        <p id="ghost-win-reason"></p>
+        <button id="ghost-play-again-btn" class="btn btn-primary">Return to Lobby</button>
+      </div>
+
+    </div>
+  </div>
+
   <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
   <script src="client.js"></script>
 </body>

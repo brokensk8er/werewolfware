@@ -453,6 +453,34 @@ io.on('connection', (socket) => {
     console.log(`${sender.name}: ${data.text}`);
   });
 
+  socket.on('ghost:send', (data) => {
+    const roomCode = getRoomCode(socket);
+    if (!roomCode) return;
+    const game = gameManager.getGame(roomCode);
+    if (!game) return;
+    const player = game.players.get(socket.id);
+    if (!player || player.alive) return; // only the dead may ghost-chat
+
+    const text = data.text?.trim();
+    if (!text) return;
+
+    const msg = { senderId: socket.id, senderName: player.name, text, timestamp: new Date() };
+
+    // Relay to every dead real player (bots have no socket)
+    for (const [pid, p] of game.players) {
+      if (!p.alive && !pid.startsWith('bot_')) {
+        io.to(pid).emit('ghost:message', msg);
+      }
+    }
+
+    const entry = gameManager.pushAdminLog(roomCode, {
+      category: 'ghost',
+      senderName: player.name,
+      text,
+    });
+    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  });
+
   socket.on('game:rejoin', (data) => {
     const entry = rejoinTokens.get(data.token);
     if (!entry) {

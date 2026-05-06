@@ -32,6 +32,7 @@ let gameState = {
   players: [],
   phase: 'lobby',
   isHost: false,
+  isDead: false,
 };
 
 let timerInterval = null;
@@ -74,6 +75,22 @@ advancePhaseBtn.addEventListener('click', () => {
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
+
+// Ghost screen elements
+const deathOverlay     = document.getElementById('death-overlay');
+const ghostScreen      = document.getElementById('ghost-screen');
+const ghostNameName    = document.getElementById('ghost-nameplate-name');
+const ghostNameRole    = document.getElementById('ghost-nameplate-role');
+const ghostPhaseBadge  = document.getElementById('ghost-phase-badge');
+const ghostAliveList   = document.getElementById('ghost-alive-list');
+const ghostDeadList    = document.getElementById('ghost-dead-list');
+const ghostMessages    = document.getElementById('ghost-messages');
+const ghostInput       = document.getElementById('ghost-input');
+const ghostSendBtn     = document.getElementById('ghost-send-btn');
+const ghostGameEnded   = document.getElementById('ghost-game-ended');
+const ghostWinnerTitle = document.getElementById('ghost-winner-title');
+const ghostWinReason   = document.getElementById('ghost-win-reason');
+const ghostPlayAgain   = document.getElementById('ghost-play-again-btn');
 chatSendBtn.addEventListener('click', () => {
   if (!chatInput.value.trim()) return;
   socket.emit('chat:send', { text: chatInput.value });
@@ -145,34 +162,61 @@ socket.on('game:reconnected', (data) => {
   gameState.role = data.role;
   gameState.players = data.players;
   gameState.phase = data.phase;
-  showGameScreen();
-  updateRoleCard();
-  updateGamePlayerList();
-  document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
-  document.getElementById('nameplate-role').textContent = data.role?.name || '';
-  data.recentMessages.forEach((msg) => appendChatMessage(msg));
-  updatePhaseDisplay(data.phase, data.secondsRemaining);
+
+  const me = data.players.find((p) => p.id === data.playerId);
+  gameState.isDead = me ? !me.alive : false;
+
+  if (gameState.isDead) {
+    // Rejoin straight to ghost screen — no death overlay on reconnect
+    showGhostScreen();
+  } else {
+    showGameScreen();
+    updateRoleCard();
+    updateGamePlayerList();
+    document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
+    document.getElementById('nameplate-role').textContent = data.role?.name || '';
+    data.recentMessages.forEach((msg) => appendChatMessage(msg));
+    updatePhaseDisplay(data.phase, data.secondsRemaining);
+  }
 });
 
 socket.on('player:connectionChanged', (data) => {
   gameState.players = gameState.players.map((p) =>
     p.id === data.playerId ? { ...p, connected: data.connected } : p
   );
-  updateGamePlayerList();
+  if (gameState.isDead) {
+    updateGhostPlayerLists();
+  } else {
+    updateGamePlayerList();
+  }
 });
 
 socket.on('phase:changed', (data) => {
   gameState.phase = data.phase;
-  updatePhaseDisplay(data.phase, data.secondsRemaining);
+  if (gameState.isDead) {
+    updateGhostPhaseBadge(data.phase);
+  } else {
+    updatePhaseDisplay(data.phase, data.secondsRemaining);
+  }
 });
 
 socket.on('player:eliminated', (data) => {
-  showError(`${data.playerName} (${data.role}) was eliminated!`);
-  // Update player list to mark as dead
   gameState.players = gameState.players.map((p) =>
     p.id === data.playerId ? { ...p, alive: false } : p
   );
-  updateGamePlayerList();
+
+  if (data.playerId === gameState.playerId) {
+    // This player just died
+    gameState.isDead = true;
+    showDeathOverlay(() => showGhostScreen());
+  } else {
+    showError(`${data.playerName} (${data.role}) was eliminated!`);
+    if (gameState.isDead) {
+      updateGhostPlayerLists();
+    } else {
+      updateGamePlayerList();
+    }
+  }
 });
 
 socket.on('seer:investigation', (data) => {
@@ -208,7 +252,17 @@ socket.on('chat:message', (data) => {
 
 socket.on('game:ended', (data) => {
   localStorage.removeItem('werewolf_rejoin_token');
-  showGameEnded(data.winner, data.winReason, data.players || []);
+  if (gameState.isDead) {
+    ghostGameEnded.classList.remove('hidden');
+    ghostWinnerTitle.textContent = `${data.winner.toUpperCase()} WINS!`;
+    ghostWinReason.textContent = data.winReason;
+  } else {
+    showGameEnded(data.winner, data.winReason);
+  }
+});
+
+socket.on('ghost:message', (data) => {
+  appendGhostMessage(data);
 });
 
 socket.on('error', (data) => {
@@ -385,6 +439,66 @@ function showGameEnded(winner, reason, players) {
   const fresh = btn.cloneNode(true);
   btn.replaceWith(fresh);
   fresh.addEventListener('click', () => location.reload());
+}
+
+// ─── Ghost screen ─────────────────────────────────────────────────────────────
+
+ghostSendBtn.addEventListener('click', sendGhostMessage);
+ghostInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendGhostMessage(); });
+ghostPlayAgain.addEventListener('click', () => location.reload());
+
+function sendGhostMessage() {
+  const text = ghostInput.value.trim();
+  if (!text || !gameState.isDead) return;
+  socket.emit('ghost:send', { text });
+  ghostInput.value = '';
+}
+
+function showDeathOverlay(callback) {
+  deathOverlay.classList.remove('hidden');
+  setTimeout(() => {
+    deathOverlay.classList.add('hidden');
+    if (callback) callback();
+  }, 3000);
+}
+
+function showGhostScreen() {
+  // Hide game screen, show ghost screen
+  document.getElementById('game-screen').classList.add('hidden');
+  ghostScreen.classList.remove('hidden');
+
+  // Populate nameplate
+  ghostNameName.textContent = gameState.playerName || 'You';
+  ghostNameRole.textContent = gameState.role?.name || '';
+  updateGhostPhaseBadge(gameState.phase);
+  updateGhostPlayerLists();
+}
+
+function updateGhostPhaseBadge(phase) {
+  const labels = { night: '🌙 Night', day: '☀️ Day', ended: '⚔️ Ended', lobby: 'Lobby' };
+  ghostPhaseBadge.textContent = labels[phase] || phase;
+}
+
+function updateGhostPlayerLists() {
+  ghostAliveList.innerHTML = '';
+  ghostDeadList.innerHTML = '';
+  gameState.players.forEach((p) => {
+    const li = document.createElement('li');
+    li.textContent = p.name + (p.connected === false ? ' (disconnected)' : '');
+    if (p.alive) {
+      ghostAliveList.appendChild(li);
+    } else {
+      ghostDeadList.appendChild(li);
+    }
+  });
+}
+
+function appendGhostMessage(data) {
+  const el = document.createElement('div');
+  el.className = 'ghost-message';
+  el.innerHTML = `<strong>${escapeHtml(data.senderName)}:</strong> ${escapeHtml(data.text)}`;
+  ghostMessages.appendChild(el);
+  ghostMessages.scrollTop = ghostMessages.scrollHeight;
 }
 
 console.log('Client loaded');
