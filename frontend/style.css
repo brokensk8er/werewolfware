@@ -172,6 +172,32 @@ h3 {
   margin-top: 1rem;
 }
 
+.vote-filter-bar {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.vote-filter-bar--visible {
+  display: flex;
+}
+
+.vote-search-input {
+  flex: 1;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.vote-filter-count {
+  font-size: 0.8rem;
+  color: #888;
+  white-space: nowrap;
+  min-width: 5ch;
+  text-align: right;
+}
+
 .player-card {
   padding: 1rem;
   background: #222;
@@ -640,7 +666,26 @@ h3 {
   }
 
   .player-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+    max-height: 55vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .player-card {
+    padding: 0.5rem 0.25rem;
+    font-size: 0.8rem;
+    min-height: 44px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .player-card:hover {
+    transform: none;
   }
 
   .header {

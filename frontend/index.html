@@ -70,12 +70,20 @@
           <div id="day-phase" class="phase-content hidden">
             <h2>Day Discussion</h2>
             <p>Vote to eliminate a player</p>
+            <div id="vote-filter-bar" class="vote-filter-bar">
+              <input type="search" id="vote-search" placeholder="Filter players…" class="input vote-search-input" autocomplete="off">
+              <span id="vote-filter-count" class="vote-filter-count"></span>
+            </div>
             <div id="vote-list" class="player-grid"></div>
           </div>
 
           <div id="night-phase" class="phase-content hidden">
             <h2>Night Actions</h2>
             <p id="night-instruction">Choose your target...</p>
+            <div id="target-filter-bar" class="vote-filter-bar">
+              <input type="search" id="target-search" placeholder="Filter players…" class="input vote-search-input" autocomplete="off">
+              <span id="target-filter-count" class="vote-filter-count"></span>
+            </div>
             <div id="target-list" class="player-grid"></div>
           </div>
 

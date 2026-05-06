@@ -369,6 +369,30 @@ function startTimer(seconds) {
   }, 1000);
 }
 
+function attachFilterBar(searchId, countId, barId, gridId) {
+  const searchInput = document.getElementById(searchId);
+  const countLabel  = document.getElementById(countId);
+  const filterBar   = document.getElementById(barId);
+  const cards       = document.querySelectorAll(`#${gridId} .player-card`);
+  const total       = cards.length;
+
+  filterBar.classList.toggle('vote-filter-bar--visible', total > 12);
+  countLabel.textContent = String(total);
+  searchInput.value = '';
+
+  searchInput.oninput = () => {
+    const q = searchInput.value.toLowerCase().trim();
+    let visible = 0;
+    cards.forEach((card) => {
+      const name = card.querySelector('span')?.textContent.toLowerCase() ?? '';
+      const show = !q || name.includes(q);
+      card.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    countLabel.textContent = q ? `${visible}/${total}` : String(total);
+  };
+}
+
 function renderVoteList() {
   voteList.innerHTML = '';
   gameState.players.forEach((player) => {
@@ -390,6 +414,7 @@ function renderVoteList() {
     });
     voteList.appendChild(card);
   });
+  attachFilterBar('vote-search', 'vote-filter-count', 'vote-filter-bar', 'vote-list');
 }
 
 function renderTargetList() {
@@ -397,13 +422,16 @@ function renderTargetList() {
   gameState.players.forEach((player) => {
     const card = document.createElement('div');
     card.className = 'player-card alive';
-    card.textContent = player.name;
+    const nameEl = document.createElement('span');
+    nameEl.textContent = player.name;
+    card.appendChild(nameEl);
     card.addEventListener('click', () => {
       socket.emit('night:action', { targetId: player.id });
       card.classList.add('selected');
     });
     targetList.appendChild(card);
   });
+  attachFilterBar('target-search', 'target-filter-count', 'target-filter-bar', 'target-list');
 }
 
 function showGameEnded(winner, reason, players) {
