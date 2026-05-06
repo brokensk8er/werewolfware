@@ -1,5 +1,5 @@
 // Admin log
-export type LogCategory = 'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat';
+export type LogCategory = 'town' | 'werewolf' | 'seer' | 'private' | 'system' | 'chat' | 'ghost';
 
 export interface AdminLogEntry {
   id: string;
@@ -20,7 +20,8 @@ export interface Player {
   role: Role;
   team: PlayerTeam;
   alive: boolean;
-  socketId?: string;
+  connected: boolean;
+  rejoinToken: string;
 }
 
 export interface ChatMessage {
@@ -91,13 +92,13 @@ export interface AdminServerEvents {
     roomCode: string;
     phase: string;
     secondsRemaining: number;
-    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean }>;
+    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean; connected: boolean }>;
     log: AdminLogEntry[];
     votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
   }) => void;
   'admin:logEntry': (data: AdminLogEntry) => void;
   'admin:playerUpdate': (data: {
-    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean }>;
+    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean; connected: boolean }>;
   }) => void;
   'admin:phaseUpdate': (data: { phase: string; secondsRemaining: number }) => void;
   'admin:voteUpdate': (data: {
@@ -113,16 +114,27 @@ export interface ClientEvents {
   'game:start': () => void;
   'game:advancePhase': () => void;
   'game:setMode': (data: { modeId: string }) => void;
+  'game:rejoin': (data: { token: string }) => void;
   'vote:cast': (data: { targetId: string }) => void;
   'night:action': (data: { targetId: string }) => void;
   'chat:send': (data: { text: string }) => void;
+  'ghost:send': (data: { text: string }) => void;
 }
 
 // Socket.io events (server -> client)
 export interface ServerEvents {
-  'lobby:created': (data: { roomCode: string; playerId: string }) => void;
-  'lobby:joined': (data: { roomCode: string; playerId: string }) => void;
+  'lobby:created': (data: { roomCode: string; playerId: string; token: string }) => void;
+  'lobby:joined': (data: { roomCode: string; playerId: string; token: string }) => void;
   'lobby:updated': (data: { players: Array<{ id: string; name: string }> }) => void;
+  'game:reconnected': (data: {
+    playerId: string;
+    role: Role;
+    players: Array<{ id: string; name: string; alive: boolean; connected: boolean }>;
+    phase: GamePhase;
+    secondsRemaining: number;
+    recentMessages: ChatMessage[];
+  }) => void;
+  'player:connectionChanged': (data: { playerId: string; playerName: string; connected: boolean }) => void;
   'game:started': (data: {
     playerId: string;
     role: Role;
@@ -145,6 +157,7 @@ export interface ServerEvents {
     voteCount: number;
   }) => void;
   'chat:message': (data: ChatMessage) => void;
+  'ghost:message': (data: ChatMessage) => void;
   'game:ended': (data: { winner: PlayerTeam; winReason: string }) => void;
   error: (data: { message: string }) => void;
 }

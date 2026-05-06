@@ -1,6 +1,6 @@
 # Werewolf Game — Project State Summary
 
-**Last Updated:** May 3, 2026  
+**Last Updated:** May 4, 2026  
 **Current Branch:** `main`
 
 ## What's Done ✅
@@ -14,40 +14,49 @@
 - ✅ Real-time chat system (town square)
 - ✅ Type-safe Socket.io events (TypeScript interfaces)
 - ✅ Game state in-memory (Map<roomCode, GameState>)
+- ✅ Mid-game reconnection — token-based rejoin, full state restore, disconnected indicator in player list
 
 ### Frontend (HTML/CSS/JS)
-- ✅ Lobby: create/join game by room code
+- ✅ Lobby: join active game by name (no room code shown to players)
 - ✅ Game UI: role reveal, phase display, timer
 - ✅ Night phase: target selection for special roles
 - ✅ Day phase: vote on players (live tally)
 - ✅ Chat: real-time messages, XSS protected
 - ✅ Mobile-friendly grid layout
 - ✅ Error/notification toasts
+- ✅ Admin panel: Google Sign-In auth, full simulation controls (add/remove players, force phase, change role, vote on behalf of player)
 
-### Deployment Config
-- ✅ `fly.toml` — Fly.io setup (256MB VM, auto-scaling disabled)
-- ✅ `.github/workflows/deploy-backend.yml` — Deploy on backend changes
-- ✅ `.github/workflows/deploy-frontend.yml` — Deploy to GitHub Pages
+### Deployment
+- ✅ **Backend live** — `https://werewolfware.fly.dev` (Fly.io, 256MB VM)
+- ✅ **Frontend live** — GitHub Pages (`brokensk8er.github.io/werewolfware`)
+- ✅ `fly.toml` — Fly.io config (auto-scaling disabled)
+- ✅ `.github/workflows/` — GitHub Actions for Pages deploy on push to `main`
 - ✅ `DEPLOYMENT.md` — Step-by-step setup guide
+- N/A **Custom domain** — Not needed; players join via QR code
 
-## What's TODO ❌
+## What's TODO
 
-### High Priority (MVP completion)
-- ✅ **Fly.io deployment** — Machine running, system responsive
-- N/A **GitHub Pages domain** — Not needed; players join via QR code
+### Post-MVP (prioritized)
 
-### Medium Priority (Post-MVP)
-- Reconnection handling (player DC/rejoin) — ~3-5k tokens
-- Additional roles (Witch, Hunter, Sheriff) — ~2-3k each
-- Game statistics & leaderboard
-- Admin dashboard (force phase advance, manage players)
+1. **Additional roles** — Witch (poison/save), Hunter (takes someone on death), Sheriff (visible investigation)
+   - Each is ~2-3k tokens: new file in `backend/src/roles/` + entry in `classic.ts`
+2. **Role balance by player count** — `classic.ts getRoles()` always assigns 1 wolf regardless of count
+   - Needs a lookup table (5-7 players: 1 wolf, 8-10: 2 wolves, etc.)
+   - See TODO comment in `backend/src/gamemodes/classic.ts:14`
+3. **Dead player chat** — Dead players can still type in the main chat; needs mute-on-death or a separate dead-only channel
+4. **Mobile polish** — Landscape mode and screens <375px have layout issues in the vote/target card grid
 
-### Low Priority (Polish)
-- Mobile UI edge cases (landscape mode, small screens)
-- Sound/toast notifications
-- Dead player chat room
-- Role balance per player count
-- Phase timer configuration
+### Low Priority (inline stubs, not blockers)
+
+- `server.ts:336` — `game:setMode` handler is a stub; mode switching in lobby unimplemented (only ClassicMode exists)
+- `phaseManager.ts:20` — Phase durations hardcoded 30s/60s; admin `setTimer` already overrides per-room so not a blocker
+- `DEPLOYMENT.md:144` — CORS is `origin: '*'`; tighten to your domain before any public/open-access show
+
+### Won't Do
+
+- **Leaderboard / game stats** — No persistent storage; in-memory only by design
+- **Admin dashboard from scratch** — Admin panel already covers force-phase, role change, eliminate, kick; full dashboard is overkill
+- **Sound/toast notifications** — Live show context; ambient sound in a full room would be chaos
 
 ## Architecture Overview
 

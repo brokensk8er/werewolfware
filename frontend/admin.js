@@ -57,6 +57,7 @@ const ctrlTimer     = document.getElementById('ctrl-timer');
 const timerInput    = document.getElementById('timer-input');
 const setTimerBtn   = document.getElementById('set-timer-btn');
 const advanceBtn    = document.getElementById('advance-phase-btn');
+const randomizeBtn  = document.getElementById('randomize-btn');
 const endGameBtn    = document.getElementById('end-game-btn');
 const voteTally     = document.getElementById('vote-tally');
 const eventLog      = document.getElementById('event-log');
@@ -171,6 +172,10 @@ setTimerBtn.addEventListener('click', () => {
   const mins = parseFloat(timerInput.value);
   if (!mins || mins <= 0) return;
   if (adminSocket) adminSocket.emit('admin:setTimer', { seconds: Math.round(mins * 60) });
+});
+
+randomizeBtn.addEventListener('click', () => {
+  if (adminSocket) adminSocket.emit('admin:randomizeActions');
 });
 
 endGameBtn.addEventListener('click', () => {
@@ -348,6 +353,7 @@ const CAT_LABELS = {
   seer:     { label: 'Seer',     color: '#8e44ad' },
   werewolf: { label: 'Wolf',     color: '#c0392b' },
   private:  { label: 'Private',  color: '#e67e22' },
+  ghost:    { label: 'Ghost',    color: '#9b59b6' },
 };
 
 function renderPlayers(players) {
@@ -398,6 +404,9 @@ function renderPhase(phase, secondsRemaining) {
 
   // Show lobby controls only in lobby phase
   lobbyControls.classList.toggle('hidden', phase !== 'lobby');
+
+  // Show randomize button only during active phases
+  randomizeBtn.classList.toggle('hidden', phase !== 'night' && phase !== 'day');
 
   // Update start button state based on current player count
   if (phase === 'lobby') updateLobbyStartButton(currentPlayers.length);
