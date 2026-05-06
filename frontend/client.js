@@ -208,7 +208,7 @@ socket.on('chat:message', (data) => {
 
 socket.on('game:ended', (data) => {
   localStorage.removeItem('werewolf_rejoin_token');
-  showGameEnded(data.winner, data.winReason);
+  showGameEnded(data.winner, data.winReason, data.players || []);
 });
 
 socket.on('error', (data) => {
@@ -352,18 +352,39 @@ function renderTargetList() {
   });
 }
 
-function showGameEnded(winner, reason) {
+function showGameEnded(winner, reason, players) {
   gameEndedDiv.classList.remove('hidden');
-  const winnerTitle = document.getElementById('winner-title');
-  const winReason = document.getElementById('win-reason');
-  const playAgainBtn = document.getElementById('play-again-btn');
+  document.getElementById('winner-title').textContent = `${winner.toUpperCase()} WINS!`;
+  document.getElementById('win-reason').textContent = reason;
 
-  winnerTitle.textContent = `${winner.toUpperCase()} WINS!`;
-  winReason.textContent = reason;
+  const resultsGrid = document.getElementById('results-grid');
+  resultsGrid.innerHTML = '';
+  players.forEach((player) => {
+    const card = document.createElement('div');
+    const fateClass = player.alive ? 'survived' : 'eliminated';
+    const teamClass = player.team === 'werewolf' ? 'werewolf-team' : '';
+    card.className = `result-card ${fateClass} ${teamClass}`.trim();
 
-  playAgainBtn.addEventListener('click', () => {
-    location.reload();
+    const nameEl = document.createElement('div');
+    nameEl.className = 'result-name';
+    nameEl.textContent = escapeHtml(player.name);
+
+    const roleEl = document.createElement('div');
+    roleEl.className = 'result-role';
+    roleEl.textContent = escapeHtml(player.role);
+
+    const fateEl = document.createElement('div');
+    fateEl.className = 'result-fate';
+    fateEl.textContent = escapeHtml(player.deathCause);
+
+    card.append(nameEl, roleEl, fateEl);
+    resultsGrid.appendChild(card);
   });
+
+  const btn = document.getElementById('play-again-btn');
+  const fresh = btn.cloneNode(true);
+  btn.replaceWith(fresh);
+  fresh.addEventListener('click', () => location.reload());
 }
 
 console.log('Client loaded');

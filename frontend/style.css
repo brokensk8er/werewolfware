@@ -377,3 +377,54 @@ h3 {
     gap: 1rem;
   }
 }
+
+/* End game results grid */
+.results-grid {
+  margin: 1.5rem 0;
+  text-align: left;
+}
+
+.result-card {
+  padding: 1rem;
+  background: #1a1a1a;
+  border: 2px solid #333;
+  border-radius: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.result-card.survived {
+  border-color: #0a0;
+}
+
+.result-card.eliminated {
+  border-color: #555;
+  opacity: 0.75;
+}
+
+.result-card .result-name {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.result-card .result-role {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+}
+
+.result-card.werewolf-team .result-role {
+  color: #c9a227;
+}
+
+.result-card .result-fate {
+  font-size: 0.85rem;
+  color: #aaa;
+  margin-top: 0.15rem;
+}
+
+.result-card.survived .result-fate {
+  color: #4c4;
+}

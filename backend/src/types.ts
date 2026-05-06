@@ -22,6 +22,7 @@ export interface Player {
   alive: boolean;
   connected: boolean;
   rejoinToken: string;
+  deathCause?: string;
 }
 
 export interface ChatMessage {
@@ -156,6 +157,16 @@ export interface ServerEvents {
     voteCount: number;
   }) => void;
   'chat:message': (data: ChatMessage) => void;
-  'game:ended': (data: { winner: PlayerTeam; winReason: string }) => void;
+  'game:ended': (data: {
+    winner: PlayerTeam;
+    winReason: string;
+    players: Array<{
+      name: string;
+      role: string;
+      team: PlayerTeam;
+      alive: boolean;
+      deathCause: string;
+    }>;
+  }) => void;
   error: (data: { message: string }) => void;
 }

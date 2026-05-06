@@ -589,7 +589,14 @@ function resolveAndAdvance(roomCode: string) {
   const nextPhase = gameManager.advancePhase(roomCode);
 
   if (nextPhase === 'ended' && game.winner && game.winReason) {
-    io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason });
+    const playerSummary = Array.from(game.players.values()).map((p) => ({
+      name: p.name,
+      role: p.role.name,
+      team: p.team,
+      alive: p.alive,
+      deathCause: p.alive ? 'Survived' : (p.deathCause ?? 'Eliminated'),
+    }));
+    io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason, players: playerSummary });
     announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`, 'system');
     broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
   } else if (nextPhase === 'night' || nextPhase === 'day') {
@@ -800,7 +807,7 @@ adminNS.on('connection', (socket: any) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
 
-    io.to(roomCode).emit('game:ended', { winner: 'village' as any, winReason: 'Game ended by moderator.' });
+    io.to(roomCode).emit('game:ended', { winner: 'village' as any, winReason: 'Game ended by moderator.', players: [] });
     announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
 
     const watchers = adminWatchers.get(roomCode);
