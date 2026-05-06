@@ -146,6 +146,7 @@ async function connectToGame(user) {
   });
 
   adminSocket.on('admin:logEntry',     appendLogEntry);
+  adminSocket.on('admin:clearLog',     () => { eventLog.innerHTML = ''; });
   adminSocket.on('admin:playerUpdate', (d) => renderPlayers(d.players));
   adminSocket.on('admin:phaseUpdate',  (d) => renderPhase(d.phase, d.secondsRemaining));
   adminSocket.on('admin:voteUpdate',   (d) => renderVotes(d.votes));
