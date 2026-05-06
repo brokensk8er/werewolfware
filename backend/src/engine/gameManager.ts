@@ -179,6 +179,7 @@ export class GameManager {
       const target = game.players.get(eliminatedId);
       if (target && target.alive) {
         target.alive = false;
+        target.deathCause = 'Voted out by the village';
         eliminated = target;
         target.role.onDeath?.(game, target);
       }
@@ -252,6 +253,7 @@ export class GameManager {
       const target = game.players.get(targetId);
       if (target && target.alive && !game.protectedPlayers.has(targetId)) {
         target.alive = false;
+        target.deathCause = 'Killed by werewolves';
         eliminated.push(target);
         target.role.onDeath?.(game, target);
       }
@@ -336,6 +338,7 @@ export class GameManager {
     const player = game.players.get(playerId);
     if (!player || !player.alive) return null;
     player.alive = false;
+    player.deathCause = 'Removed by moderator';
     return player;
   }
 
