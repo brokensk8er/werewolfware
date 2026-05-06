@@ -627,6 +627,8 @@ function resolveAndAdvance(roomCode: string) {
     io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason, players: playerSummary });
     announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`, 'system');
     broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
+    gameManager.clearAdminLog(roomCode);
+    emitToAdmins(roomCode, 'admin:clearLog', {});
   } else if (nextPhase === 'night' || nextPhase === 'day') {
     const seconds = game.customPhaseDuration ?? 30;
     gameManager.updateTimer(roomCode, seconds);
@@ -837,6 +839,7 @@ adminNS.on('connection', (socket: any) => {
 
     io.to(roomCode).emit('game:ended', { winner: 'village' as any, winReason: 'Game ended by moderator.', players: [] });
     announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
+    emitToAdmins(roomCode, 'admin:clearLog', {});
 
     const watchers = adminWatchers.get(roomCode);
     adminWatchers.delete(roomCode);

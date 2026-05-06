@@ -45,6 +45,11 @@ export class GameManager {
     return full;
   }
 
+  clearAdminLog(roomCode: string): void {
+    const game = this.games.get(roomCode);
+    if (game) game.adminLog = [];
+  }
+
   getGame(roomCode: string): GameState | undefined {
     return this.games.get(roomCode);
   }
