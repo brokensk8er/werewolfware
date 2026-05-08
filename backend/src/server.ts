@@ -15,8 +15,14 @@ import { Doctor } from './roles/doctor.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app: Express = express();
 const httpServer = createServer(app);
+const ALLOWED_ORIGINS = [
+  'https://werewolfware.fly.dev',
+  'https://brokensk8er.github.io',
+];
+
 const io = new SocketIOServer<ClientEvents, ServerEvents>(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { origin: ALLOWED_ORIGINS, methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 1e5, // 100 KB max payload
 });
 
 // Admin Socket.io namespace
@@ -77,6 +83,18 @@ async function verifyAdminToken(token: string): Promise<string | null> {
 
 const gameManager = new GameManager();
 const PORT = process.env.PORT || 3000;
+
+// Per-socket rate limiter: socketId -> event -> last timestamp
+const socketRateLimits = new Map<string, Map<string, number>>();
+
+function rateLimit(socketId: string, event: string, minMs: number): boolean {
+  let events = socketRateLimits.get(socketId);
+  if (!events) { events = new Map(); socketRateLimits.set(socketId, events); }
+  const last = events.get(event) ?? 0;
+  if (Date.now() - last < minMs) return false;
+  events.set(event, Date.now());
+  return true;
+}
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use(express.json());
@@ -240,9 +258,14 @@ io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
 
   socket.on('lobby:create', (data) => {
+    const playerName = typeof data.playerName === 'string' ? data.playerName.trim() : '';
+    if (!playerName || playerName.length > 32) {
+      socket.emit('error', { message: 'Name must be 1–32 characters' });
+      return;
+    }
     const roomCode = Math.random().toString(36).substring(7).toUpperCase();
     gameManager.createGame(roomCode, socket.id, ClassicMode);
-    const creatorPlayer = gameManager.addPlayer(roomCode, socket.id, data.playerName);
+    const creatorPlayer = gameManager.addPlayer(roomCode, socket.id, playerName);
     if (creatorPlayer) rejoinTokens.set(creatorPlayer.rejoinToken, { roomCode, playerId: socket.id });
 
     socket.join(roomCode);
@@ -257,7 +280,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('lobby:join', (data) => {
-    const { playerName } = data;
+    const playerName = typeof data.playerName === 'string' ? data.playerName.trim() : '';
+    if (!playerName || playerName.length > 32) {
+      socket.emit('error', { message: 'Name must be 1–32 characters' });
+      return;
+    }
     // Auto-resolve the single active game; ignore any client-supplied roomCode
     const roomCode = getActiveRoomCode();
     const game = roomCode ? gameManager.getGame(roomCode) : null;
@@ -282,7 +309,7 @@ io.on('connection', (socket) => {
       players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
     });
     broadcastAdminPlayerUpdate(roomCode);
-    console.log(`Player ${playerName} joined room ${roomCode}`);
+    console.log(`Player ${player.name} joined room ${roomCode}`);
   });
 
   socket.on('game:start', () => {
@@ -340,6 +367,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('vote:cast', (data) => {
+    if (!rateLimit(socket.id, 'vote:cast', 1000)) { socket.emit('error', { message: 'Slow down' }); return; }
     const roomCode = getRoomCode(socket);
     if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
@@ -350,10 +378,12 @@ io.on('connection', (socket) => {
     }
 
     const voter = game.players.get(socket.id);
-    if (!voter) return;
+    if (!voter || !voter.alive) return;
+
+    const target = game.players.get(data.targetId);
+    if (!target || !target.alive) { socket.emit('error', { message: 'Invalid vote target' }); return; }
 
     gameManager.castVote(roomCode, socket.id, data.targetId);
-    const target = game.players.get(data.targetId);
 
     const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
       voterId,
@@ -395,6 +425,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('night:action', (data) => {
+    if (!rateLimit(socket.id, 'night:action', 2000)) { socket.emit('error', { message: 'Slow down' }); return; }
     const roomCode = getRoomCode(socket);
     if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
@@ -410,10 +441,11 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const target = game.players.get(data.targetId);
+    if (!target || !target.alive) { socket.emit('error', { message: 'Invalid target' }); return; }
+
     gameManager.recordNightAction(roomCode, socket.id, data.targetId);
     socket.emit('night:actionRecorded', { targetId: data.targetId });
-
-    const target = game.players.get(data.targetId);
     const logText = `${player.role.name} ${player.name} targeted ${target?.name ?? data.targetId}`;
     const entry = gameManager.pushAdminLog(roomCode, {
       category: player.role.id === 'werewolf' ? 'werewolf' : 'seer',
@@ -425,6 +457,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat:send', (data) => {
+    if (!rateLimit(socket.id, 'chat:send', 500)) { socket.emit('error', { message: 'Slow down' }); return; }
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!text || text.length > 500) { socket.emit('error', { message: 'Message too long' }); return; }
     const roomCode = getRoomCode(socket);
     if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
 
@@ -437,23 +472,24 @@ io.on('connection', (socket) => {
     const message = {
       senderId: socket.id,
       senderName: sender.name,
-      text: data.text,
+      text,
       timestamp: new Date(),
     };
 
-    gameManager.addChatMessage(roomCode, socket.id, sender.name, data.text);
+    gameManager.addChatMessage(roomCode, socket.id, sender.name, text);
     io.to(roomCode).emit('chat:message', message);
 
     const entry = gameManager.pushAdminLog(roomCode, {
       category: 'chat',
       senderName: sender.name,
-      text: data.text,
+      text,
     });
     if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-    console.log(`${sender.name}: ${data.text}`);
+    console.log(`${sender.name}: ${text}`);
   });
 
   socket.on('ghost:send', (data) => {
+    if (!rateLimit(socket.id, 'ghost:send', 1000)) return;
     const roomCode = getRoomCode(socket);
     if (!roomCode) return;
     const game = gameManager.getGame(roomCode);
@@ -461,8 +497,8 @@ io.on('connection', (socket) => {
     const player = game.players.get(socket.id);
     if (!player || player.alive) return; // only the dead may ghost-chat
 
-    const text = data.text?.trim();
-    if (!text) return;
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!text || text.length > 500) return;
 
     const msg = { senderId: socket.id, senderName: player.name, text, timestamp: new Date() };
 
@@ -482,6 +518,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game:rejoin', (data) => {
+    if (!rateLimit(socket.id, 'game:rejoin', 3000)) { socket.emit('error', { message: 'Slow down' }); return; }
     const entry = rejoinTokens.get(data.token);
     if (!entry) {
       socket.emit('error', { message: 'Rejoin token invalid or expired' });
@@ -536,6 +573,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    socketRateLimits.delete(socket.id);
     const roomCode = getRoomCode(socket);
     if (roomCode) {
       const game = gameManager.getGame(roomCode);
@@ -668,7 +706,14 @@ function attachAdminToRoom(socket: any, uid: string, roomCode: string) {
 adminNS.on('connection', (socket: any) => {
   console.log(`[Admin] socket connected: ${socket.id}`);
 
-  socket.on('admin:auth', async (data: { token: string }) => {
+  const authTimeout = setTimeout(() => {
+    if (!socket.data.adminUid) {
+      socket.disconnect(true);
+    }
+  }, 30_000);
+
+  socket.once('admin:auth', async (data: { token: string }) => {
+    clearTimeout(authTimeout);
     const { token } = data;
 
     const uid = await verifyAdminToken(token);

@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { GameState, GamePhase, Player, Role, GameMode, AdminLogEntry, LogCategory } from '../types.js';
 import { PhaseManager } from './phaseManager.js';
 import { WinChecker } from './winChecker.js';
@@ -72,7 +73,7 @@ export class GameManager {
       team: 'village',
       alive: true,
       connected: true,
-      rejoinToken: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      rejoinToken: randomBytes(32).toString('hex'),
     };
     game.players.set(playerId, player);
     return player;
