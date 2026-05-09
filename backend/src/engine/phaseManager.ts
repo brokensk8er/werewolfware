@@ -1,4 +1,4 @@
-import { GamePhase } from '../types.js';
+import { GamePhase, GameMode } from '../types.js';
 
 export class PhaseManager {
   getNextPhase(currentPhase: GamePhase): GamePhase {
@@ -16,15 +16,12 @@ export class PhaseManager {
     }
   }
 
-  getPhaseDuration(phase: GamePhase): number {
-    // TODO (low priority): durations are hardcoded 30s/60s. These could become
-    // per-mode config on GameMode, but admin setTimer already overrides them
-    // per-room at runtime, so this is not a blocker.
+  getPhaseDuration(phase: GamePhase, gameMode?: GameMode): number {
     switch (phase) {
       case 'night':
-        return 30; // seconds
+        return gameMode?.phaseDurations?.night ?? 30;
       case 'day':
-        return 60; // seconds
+        return gameMode?.phaseDurations?.day ?? 60;
       default:
         return 0;
     }

@@ -73,6 +73,7 @@ export interface GameMode {
   description: string;
   minPlayers: number;
   maxPlayers: number;
+  phaseDurations?: { night: number; day: number };
   getRoles(playerCount: number): Role[];
 }
 

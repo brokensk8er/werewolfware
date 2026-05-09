@@ -3,7 +3,7 @@
 // and provides basic auth setup checks.
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 // Firebase configuration (copied from nodicedataset)
 const firebaseConfig = {
@@ -42,5 +42,13 @@ export function checkAuthState(callback) {
 //   }
 // });
 
-// TODO: Add more auth functions as needed, like signIn, signOut, etc.
-// Also, ensure firestore.rules and database.rules.json are applied in Firebase console.
+export async function signIn(email, password) {
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  return userCredential.user;
+}
+
+export async function signOut() {
+  await firebaseSignOut(auth);
+}
+
+// Ensure firestore.rules and database.rules.json are applied in Firebase console.

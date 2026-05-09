@@ -319,7 +319,7 @@ io.on('connection', (socket) => {
 
     announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
     announce(roomCode, pick(PHASE_NIGHT), 'system');
-    const startSeconds = game.customPhaseDuration ?? 30;
+    const startSeconds = game.customPhaseDuration ?? (game.gameMode.phaseDurations?.night ?? 30);
 
     io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: startSeconds });
     broadcastAdminPlayerUpdate(roomCode);
@@ -334,9 +334,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game:setMode', (_data) => {
-    // TODO (low priority): game:setMode is a stub — only ClassicMode exists.
-    // If a second game mode is added, wire up mode selection in the lobby UI
-    // and store the chosen mode on the GameState before game:start.
+    // No-op: only ClassicMode exists. Wire up mode selection here when a second mode is added.
   });
 
   socket.on('vote:cast', (data) => {
@@ -630,7 +628,8 @@ function resolveAndAdvance(roomCode: string) {
     gameManager.clearAdminLog(roomCode);
     emitToAdmins(roomCode, 'admin:clearLog', {});
   } else if (nextPhase === 'night' || nextPhase === 'day') {
-    const seconds = game.customPhaseDuration ?? 30;
+    const modeDefault = nextPhase === 'night' ? (game.gameMode.phaseDurations?.night ?? 30) : (game.gameMode.phaseDurations?.day ?? 60);
+    const seconds = game.customPhaseDuration ?? modeDefault;
     gameManager.updateTimer(roomCode, seconds);
     announce(roomCode, pick(nextPhase === 'night' ? PHASE_NIGHT : PHASE_DAY), 'system');
     io.to(roomCode).emit('phase:changed', { phase: nextPhase, secondsRemaining: seconds });
@@ -825,7 +824,7 @@ adminNS.on('connection', (socket: any) => {
 
     announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
     announce(roomCode, pick(PHASE_NIGHT), 'system');
-    const adminStartSeconds = game.customPhaseDuration ?? 30;
+    const adminStartSeconds = game.customPhaseDuration ?? (game.gameMode.phaseDurations?.night ?? 30);
 
     io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: adminStartSeconds });
     broadcastAdminPlayerUpdate(roomCode);

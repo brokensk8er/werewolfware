@@ -291,7 +291,7 @@ export class GameManager {
       return 'ended';
     }
 
-    game.phaseEndsAt = new Date(Date.now() + 30 * 1000);
+    game.phaseEndsAt = new Date(Date.now() + this.phaseManager.getPhaseDuration(nextPhase, game.gameMode) * 1000);
     return nextPhase;
   }
 
