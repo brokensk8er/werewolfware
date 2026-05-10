@@ -11,6 +11,7 @@ import { Villager } from './roles/villager.js';
 import { Werewolf } from './roles/werewolf.js';
 import { Seer } from './roles/seer.js';
 import { Doctor } from './roles/doctor.js';
+import { Mayor } from './roles/mayor.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app: Express = express();
@@ -29,6 +30,7 @@ const ROLE_REGISTRY: Record<string, any> = {
   werewolf: Werewolf,
   seer: Seer,
   doctor: Doctor,
+  mayor: Mayor,
 };
 
 // Track which admin sockets are watching which room: roomCode -> Set<socketId>

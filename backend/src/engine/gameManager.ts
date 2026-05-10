@@ -136,6 +136,7 @@ export class GameManager {
     players.forEach((p, i) => {
       p.role = roles[i];
       p.team = roles[i].team;
+      if (roles[i].id === 'mayor') p.name = `Mayor ${p.name}`;
     });
 
     // Start with night phase
@@ -162,10 +163,12 @@ export class GameManager {
     const game = this.games.get(roomCode);
     if (!game || game.phase !== 'day') return { eliminated: null, voteCount: 0 };
 
-    // Tally votes
+    // Tally votes (Mayor's vote counts twice)
     const voteTally = new Map<string, number>();
-    for (const targetId of game.dayVotes.values()) {
-      voteTally.set(targetId, (voteTally.get(targetId) || 0) + 1);
+    for (const [voterId, targetId] of game.dayVotes.entries()) {
+      const voter = game.players.get(voterId);
+      const weight = voter?.role?.id === 'mayor' ? 2 : 1;
+      voteTally.set(targetId, (voteTally.get(targetId) || 0) + weight);
     }
 
     // Find player with most votes

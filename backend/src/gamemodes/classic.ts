@@ -3,6 +3,7 @@ import { Villager } from '../roles/villager.js';
 import { Werewolf } from '../roles/werewolf.js';
 import { Seer } from '../roles/seer.js';
 import { Doctor } from '../roles/doctor.js';
+import { Mayor } from '../roles/mayor.js';
 
 export const ClassicMode: GameMode = {
   id: 'classic',
@@ -23,7 +24,8 @@ export const ClassicMode: GameMode = {
       for (let i = 0; i < wolfCount; i++) roles.push(Werewolf);
       roles.push(Seer);
       roles.push(Doctor);
-      for (let i = 0; i < playerCount - wolfCount - 2; i++) {
+      roles.push(Mayor);
+      for (let i = 0; i < playerCount - wolfCount - 3; i++) {
         roles.push(Villager);
       }
     }
