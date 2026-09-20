@@ -15,18 +15,4 @@ export class PhaseManager {
         return 'lobby';
     }
   }
-
-  getPhaseDuration(phase: GamePhase): number {
-    // TODO (low priority): durations are hardcoded 30s/60s. These could become
-    // per-mode config on GameMode, but admin setTimer already overrides them
-    // per-room at runtime, so this is not a blocker.
-    switch (phase) {
-      case 'night':
-        return 30; // seconds
-      case 'day':
-        return 60; // seconds
-      default:
-        return 0;
-    }
-  }
 }

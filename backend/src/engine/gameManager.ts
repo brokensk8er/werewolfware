@@ -126,6 +126,20 @@ export class GameManager {
     return true;
   }
 
+  private static readonly MAYOR_PREFIX = 'Mayor ';
+
+  // Keeps the visible "Mayor " name tag in sync with the Mayor role, whether
+  // assigned at game start or swapped in later via admin:changeRole.
+  private applyMayorNameTag(player: Player, newRole: Role): void {
+    const wasMayor = player.role?.id === 'mayor';
+    const isMayor = newRole.id === 'mayor';
+    if (isMayor && !wasMayor && !player.name.startsWith(GameManager.MAYOR_PREFIX)) {
+      player.name = `${GameManager.MAYOR_PREFIX}${player.name}`;
+    } else if (!isMayor && wasMayor && player.name.startsWith(GameManager.MAYOR_PREFIX)) {
+      player.name = player.name.slice(GameManager.MAYOR_PREFIX.length);
+    }
+  }
+
   startGame(roomCode: string): boolean {
     const game = this.games.get(roomCode);
     if (!game || game.players.size < game.gameMode.minPlayers) return false;
@@ -134,9 +148,9 @@ export class GameManager {
     const roles = game.gameMode.getRoles(game.players.size);
     const players = Array.from(game.players.values());
     players.forEach((p, i) => {
+      this.applyMayorNameTag(p, roles[i]);
       p.role = roles[i];
       p.team = roles[i].team;
-      if (roles[i].id === 'mayor') p.name = `Mayor ${p.name}`;
     });
 
     // Start with night phase
@@ -294,7 +308,8 @@ export class GameManager {
       return 'ended';
     }
 
-    game.phaseEndsAt = new Date(Date.now() + 30 * 1000);
+    // phaseEndsAt is (re-)set by the caller via updateTimer(), which knows
+    // about any per-room customPhaseDuration; don't stomp it with a default here.
     return nextPhase;
   }
 
@@ -335,6 +350,7 @@ export class GameManager {
     if (!game) return null;
     const player = game.players.get(playerId);
     if (!player) return null;
+    this.applyMayorNameTag(player, newRole);
     player.role = newRole;
     player.team = newRole.team;
     return player;

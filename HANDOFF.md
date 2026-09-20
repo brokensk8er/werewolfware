@@ -49,11 +49,9 @@ Frontend pushes to `main` auto-deploy via GitHub Actions to GitHub Pages. Backen
 
 ### What's Left / Next Work
 
-- **Event log refinements:** The log has no "clear" button, no scroll-to-top, no search/filter by player name. Entries stack up across the whole session with no way to segment by round/phase. A phase separator row (e.g. `── Night 2 ──`) injected on each `admin:phaseUpdate` would make the log much easier to read.
-- **Admin `admin:castVote` does not fire the vote notification messages** (ambiguous town chat + private confirmation). Only the player-side `vote:cast` handler does. If simulating votes via admin, players won't see the pebble-in-jar message. Fix: extract vote notification logic into a shared helper and call it from both handlers.
-- **No "clear game" / lobby reset without ending.** Once a game is ended, the admin must create a new one. There's no way to reset the lobby back to zero without the full end→create cycle.
-- **Min player count (5) is hardcoded from `ClassicMode.minPlayers`.** The `admin:startGame` handler currently hardcodes `5` in its error string rather than reading from the game mode. Should use `game.gameMode.minPlayers` for correctness if modes are ever added.
-- **Night action submission from admin has no "already submitted" guard.** Calling `admin:submitNightAction` twice for the same actor overwrites the previous action silently. That's probably fine for simulation but worth noting.
+Tracked in [`PROJECT_STATE.md`](./PROJECT_STATE.md) under "What's TODO" (see
+"Admin panel" items there) — kept in one place instead of drifting across
+this file, README.md, and PROJECT_STATE.md separately.
 
 
 ---

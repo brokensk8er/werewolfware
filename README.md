@@ -168,15 +168,10 @@ Modes are lazy-loaded per game; add a new mode without touching the engine.
 
 ## TODO / Next Steps
 
-- [ ] Night phase resolution loop (kill, protect, investigate logic)
-- [ ] Day phase voting (tally votes, eliminate player, announce)
-- [ ] Chat system per room
-- [ ] Additional roles (Witch, Hunter, Sheriff, etc.)
-- [ ] Game statistics & leaderboard
-- [ ] Mobile-friendly UI polish
-- [ ] Sound/toast notifications
-- [ ] Reconnection handling
-- [ ] Admin dashboard for server health
+This list previously duplicated (and drifted from) the actual state of the
+project. **[`PROJECT_STATE.md`](./PROJECT_STATE.md) is now the single source
+of truth for what's done and what's outstanding** — check there instead of
+maintaining a second list here.
 
 ## Architecture Notes
 
