@@ -32,25 +32,28 @@
 ### Deployment
 - ✅ **Backend live** — `https://werewolfware.fly.dev` (Fly.io, 256MB VM)
 - ✅ **Frontend live** — GitHub Pages (`brokensk8er.github.io/werewolfware`)
-- ✅ `fly.toml` — Fly.io config (auto-scaling disabled)
-- ✅ `.github/workflows/` — GitHub Actions for Pages deploy on push to `main`
+- ✅ `fly.toml` — Fly.io config (`min_machines_running = 1`; auto-stop/auto-start enabled — keep exactly one machine)
+- ✅ `.github/workflows/` — `deploy-frontend.yml` publishes Pages on `frontend/**` changes to `main`; `deploy-backend.yml` **deploys to Fly on `backend/**` changes to `main`** (or manually via `workflow_dispatch`). Docs-only changes trigger neither.
 - ✅ `DEPLOYMENT.md` — Step-by-step setup guide
 - N/A **Custom domain** — Not needed; players join via QR code
 
 ## What's TODO
 
-**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-09-19). Summary:
+**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-01, runtime-verified). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
 
-- **Pass 1 — Harden + safety net:** late-join crash, crash guard, host/permission gating, action validation, wolf pack kill (currently each wolf kills a different player), day-vote ties, dedupe start/vote logic, Fisher–Yates shuffle, Vitest + CI.
-- **Pass 2 — Extensibility refactor:** split `server.ts`, single role registry, night-action pipeline with role priorities, vote-weight/assign/death hooks, composable win conditions, per-mode durations. Proof: add Hunter with zero engine edits.
-- **Pass 3 — Party scale (10–30):** scaling table to 30, more roles, wolf team channel, chat gating, spectators, 30-bot load test.
-- **Pass 4 — Ops:** state persistence, configurable server URL / LAN mode, auto-timers if remote, CORS, runbook.
+- **Pass 1 — Harden + safety net:** crash fixes (advance-from-lobby, payload-less events, late joins), payload validation, remove player-side host controls, action validation, wolf pack kill, day-vote ties, disconnect detection, rejoin token hardening, Vitest + smoke test.
+- **Pass 2 — Extensibility refactor:** stable player id (not socket id), split `server.ts`, single role registry, night-action pipeline with role priorities, vote-weight/assign/death hooks, composable win conditions. Proof: add Hunter with zero engine edits.
+- **Pass 3 — Party scale (10–30):** scaling table to 30, more roles, 30-bot load test.
+- **Pass 4 — Ops & mothballing:** deploy hygiene, annual pre-event checklist (Node 18 is past end-of-life), LAN fallback, runbook.
 
-### Known gaps (details in TODO.md)
+### Known gaps (details and repro evidence in TODO.md)
 
-- Dead players can still post in town chat (ghost channel exists but `chat:send` doesn't block the dead).
-- Player-namespace `game:start` / `game:advancePhase` / `lobby:create` are unauthenticated.
-- Timers are display-only; the admin advances every phase.
+- **Crashes (any one exits the server and loses the game):** `game:advancePhase` / Force Phase while in the lobby; an event with no payload; a late joiner (role `null`) hitting the game-end summary.
+- Disconnects are never detected (the `disconnect` handler reads `socket.rooms`, already empty), so the disconnected indicator never shows. Rejoin itself works.
+- Player-namespace `game:start` / `game:advancePhase` / `lobby:create` are unauthenticated (to be removed; the admin panel is the driver).
+- No action validation: dead players' votes count, nonexistent vote targets are accepted, chat is unbounded and open to the dead.
+- 3 wolves kill 3 players per night; vote ties go to the first-inserted target; `maxPlayers` is not enforced.
+- Timers are display-only (by design under D1); the admin advances every phase.
 - README's "no engine changes needed for new roles" is not yet true: night/day logic is hard-coded by role id.
 
 ### Won't Do
