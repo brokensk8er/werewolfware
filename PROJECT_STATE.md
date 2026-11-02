@@ -1,6 +1,6 @@
 # Werewolf Game — Project State Summary
 
-**Last Updated:** May 4, 2026  
+**Last Updated:** September 19, 2026 (roadmap moved to `TODO.md`)  
 **Current Branch:** `main`
 
 ## What's Done ✅
@@ -15,6 +15,9 @@
 - ✅ Type-safe Socket.io events (TypeScript interfaces)
 - ✅ Game state in-memory (Map<roomCode, GameState>)
 - ✅ Mid-game reconnection — token-based rejoin, full state restore, disconnected indicator in player list
+- ✅ Mayor role (double vote, public title) and wolf-count scaling by player count (1/2/3/4 wolves)
+- ✅ Ghost chat channel for dead players (`ghost:send`)
+- ✅ Admin-driven single active game; bot players and night/vote simulation
 
 ### Frontend (HTML/CSS/JS)
 - ✅ Lobby: join active game by name (no room code shown to players)
@@ -36,27 +39,25 @@
 
 ## What's TODO
 
-### Post-MVP (prioritized)
+**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-09-19). Summary:
 
-1. **Additional roles** — Witch (poison/save), Hunter (takes someone on death), Sheriff (visible investigation)
-   - Each is ~2-3k tokens: new file in `backend/src/roles/` + entry in `classic.ts`
-2. **Role balance by player count** — `classic.ts getRoles()` always assigns 1 wolf regardless of count
-   - Needs a lookup table (5-7 players: 1 wolf, 8-10: 2 wolves, etc.)
-   - See TODO comment in `backend/src/gamemodes/classic.ts:14`
-3. **Dead player chat** — Dead players can still type in the main chat; needs mute-on-death or a separate dead-only channel
-4. **Mobile polish** — Landscape mode and screens <375px have layout issues in the vote/target card grid
+- **Pass 1 — Harden + safety net:** late-join crash, crash guard, host/permission gating, action validation, wolf pack kill (currently each wolf kills a different player), day-vote ties, dedupe start/vote logic, Fisher–Yates shuffle, Vitest + CI.
+- **Pass 2 — Extensibility refactor:** split `server.ts`, single role registry, night-action pipeline with role priorities, vote-weight/assign/death hooks, composable win conditions, per-mode durations. Proof: add Hunter with zero engine edits.
+- **Pass 3 — Party scale (10–30):** scaling table to 30, more roles, wolf team channel, chat gating, spectators, 30-bot load test.
+- **Pass 4 — Ops:** state persistence, configurable server URL / LAN mode, auto-timers if remote, CORS, runbook.
 
-### Low Priority (inline stubs, not blockers)
+### Known gaps (details in TODO.md)
 
-- `server.ts:336` — `game:setMode` handler is a stub; mode switching in lobby unimplemented (only ClassicMode exists)
-- `phaseManager.ts:20` — Phase durations hardcoded 30s/60s; admin `setTimer` already overrides per-room so not a blocker
-- `DEPLOYMENT.md:144` — CORS is `origin: '*'`; tighten to your domain before any public/open-access show
+- Dead players can still post in town chat (ghost channel exists but `chat:send` doesn't block the dead).
+- Player-namespace `game:start` / `game:advancePhase` / `lobby:create` are unauthenticated.
+- Timers are display-only; the admin advances every phase.
+- README's "no engine changes needed for new roles" is not yet true: night/day logic is hard-coded by role id.
 
 ### Won't Do
 
-- **Leaderboard / game stats** — No persistent storage; in-memory only by design
-- **Admin dashboard from scratch** — Admin panel already covers force-phase, role change, eliminate, kick; full dashboard is overkill
-- **Sound/toast notifications** — Live show context; ambient sound in a full room would be chaos
+- **Leaderboard / game stats** — no persistent stats by design (state persistence for restarts is separate, see Pass 4)
+- **Admin dashboard from scratch** — the admin panel already covers force-phase, role change, eliminate, kick
+- **Sound notifications** — live show context; ambient sound in a full room would be chaos
 
 ## Architecture Overview
 
