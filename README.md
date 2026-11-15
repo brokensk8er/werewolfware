@@ -134,19 +134,23 @@ Modes are lazy-loaded per game; add a new mode without touching the engine.
 ### Client → Server
 
 ```typescript
-'lobby:create'    { playerName: string }
-'lobby:join'      { roomCode: string; playerName: string }
-'game:start'      —
+'lobby:join'      { playerName: string }      // joins the one active game
+'game:rejoin'     { token: string }           // sent on every connect, restores the seat
 'vote:cast'       { targetId: string }
 'night:action'    { targetId: string }
+'chat:send'       { text: string }
+'ghost:send'      { text: string }
+// Players cannot create, start or advance a game. The moderator panel does that
+// on the /admin namespace (admin:createGame, admin:startGame, admin:forcePhase).
 ```
 
 ### Server → Client
 
 ```typescript
-'lobby:created'     { roomCode: string; playerId: string }
-'lobby:joined'      { roomCode: string; playerId: string }
-'lobby:updated'     { players: Array<{id, name}> }
+'lobby:joined'      { roomCode: string; playerId: string; token: string; playerName: string }
+'lobby:updated'     { players: Array<{id, name, alive, connected}> }  // lobby and mid-game
+'game:reconnected'  { playerId, playerName, role, players, phase, secondsRemaining, recentMessages }
+'player:removed'    { message: string }
 'game:started'      { playerId: string; role: Role; players: Array }
 'phase:changed'     { phase: GamePhase; secondsRemaining: number }
 'game:ended'        { winner: PlayerTeam; winReason: string }

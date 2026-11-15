@@ -134,11 +134,12 @@ frontend/
 | Event (client → server) | Payload | Description |
 |---|---|---|
 | `lobby:join` | `{ playerName }` | Join active game (no room code needed) |
-| `game:start` | — | Start the game (host only) |
-| `game:advancePhase` | — | Manual phase advance (host) |
+| `game:rejoin` | `{ token }` | Sent on every connect; restores the player's seat |
 | `chat:send` | `{ text }` | Send chat message |
-| `game:vote` | `{ targetId }` | Day vote |
-| `game:nightAction` | `{ targetId }` | Night action |
+| `vote:cast` | `{ targetId }` | Day vote |
+| `night:action` | `{ targetId }` | Night action |
+
+Players cannot start or advance a game. `game:start`, `game:advancePhase`, `game:setMode` and `lobby:create` were removed on 2026-11-15; the admin namespace is the only driver.
 
 ### Admin namespace (`/admin`)
 | Event (client → server) | Payload | Description |

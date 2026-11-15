@@ -1,6 +1,7 @@
 # Werewolfware — TODO & Roadmap
 
-**Last audited:** 2026-11-01 — full backend read, with key behavior verified at runtime (scratch server + `socket.io-client`) against `main` @ `65bfe65`.
+**Last audited:** 2026-11-13 — every source file read, then a 30-player game run at phone size (375 x 667, touch) against a local copy. Findings and the screen designs are in the design proposal (a Claude doc titled "Werewolfware: Mobile and Admin Design Proposal").
+**Last changed:** 2026-11-15 — Pass A (night-stoppers) merged. `tests/phone-check` passes 47 of 47.
 **Use case:** one in-person game per year, 10–30 players, run by a moderator from the admin panel with the app as an *aid*. The project sits mothballed between uses.
 **Goal:** it works on the night, it is cheap to dust off a year later, and a new role or game mode is *one file + one registry line*.
 
@@ -43,18 +44,50 @@
 
 ---
 
-## Pass 1 — Harden + safety net  *(stop crashes and cheating; ~1 session)*
+## Pass A — Night-stoppers  *(DONE 2026-11-15)*
+
+Found by the 2026-11-13 phone-size audit. Each line is covered by a check in `tests/phone-check`.
+
+- [x] **Host buttons on every phone.** Start Game and Advance Phase showed and worked on every player's phone (the `hidden` class had no style rule for those blocks, and the server did not check who asked). Buttons and the player-side handlers `game:start`, `game:advancePhase`, `game:setMode`, `lobby:create` are deleted. *(was P1-03; the earlier note that the buttons "never show" was wrong)*
+- [x] **Dropped connections repaired.** The phone sends its rejoin token on every connect, not only on page load. The room is recorded on the socket, so drops are detected *(P1-11)*. Connection changes go to the moderator log, not the room chat.
+- [x] **Moderator list scrolls on phones.** With 30 players, Start Game and every row are reachable at 375 x 667, 390 x 844 and 768 x 1024.
+- [x] **Advance Phase refused in the lobby and after the end** *(part of P1-01)*.
+- [x] **Bad events cannot stop the server.** Every handler is wrapped; a missing payload becomes `{}`; `uncaughtException` / `unhandledRejection` are logged *(the crash-guard half of P1-02; Zod schemas are still open)*.
+- [x] **Late joiners turned away; names trimmed, 1–20 characters, unique** *(part of P1-01)*.
+- [x] **Mid-game removal is safe.** Player lists always carry alive/connected flags; the removed player's token, vote and night action are dropped; they land back on the join screen.
+- [x] **End screen works on living phones.** Results show, the phase panel and timer clear, Return to Lobby works.
+- [x] **Choices survive redraws.** A timer change, a reconnect or a removal no longer clears a player's highlight or the vote counts.
+- [x] **Moderator errors visible** in a banner on every view; **fresh sign-in token on each connect**; **log panel only under its own tab**.
+- [x] **Rejoin tokens cleared** when a game ends or a player is removed *(part of P1-12; `crypto.randomUUID()` is still open)*.
+
+Deliberately not done here: `maxPlayers` is **not** enforced. `ClassicMode.maxPlayers` is 20 and the goal is 30, so enforcing it would block the target game size. Raise the limit together with the 30-player role table (Pass 3).
+
+### What comes next (from the design proposal)
+
+| Pass | Work | Where it lives below |
+|------|------|----------------------|
+| B. One snapshot per phone | Server sends each player their whole view after every change; the page redraws from it; stable player id | New, absorbs P2-00 |
+| C. Player phone | New screens: one job per phase, role hidden until held, confirm before a choice counts | New. Needs proposal decisions 1–4 |
+| D. Moderator panel | Setup with role counts, Run with a result preview, player sheet, bring-back and undo | New |
+| E. Rules and roles | Pack kill, ties, validation, night-action pipeline, Hunter, scaling to 30 | Rest of Pass 1, Pass 2, Pass 3 |
+| F. Before the event | One host, Node upgrade, load script, real-phone rehearsal, runbook | Pass 4 |
+
+Still open from the audit and not yet in a pass below: Change Role leaves the phone's night screen stale and is discarded if used in the lobby; Mayor is missing from the Change Role list; a refresh loses private results (seer findings); roles show as a dash after a moderator reload; the log is wiped at game end; Eliminate does not check for a win; End Game announces a village win; low text contrast. All are covered by passes B–D.
+
+---
+
+## Pass 1 — Harden + safety net  *(what is left after Pass A)*
 
 Do in this order. Tests first so Pass 2's refactor has a net.
 
-- [ ] **P1-00 Test harness + smoke test.** Vitest + `npm test`; `tsc --noEmit` and tests in a *separate* CI workflow (no deploy). Add `npm run smoke`: a `socket.io-client` script that boots the server, joins 5 bots, starts, runs a night and a day, and asserts the process is still alive. Turn every "Ran" finding in the log above into a test (`it.fails` until fixed, so each fix flips one green).
-- [ ] **P1-01 Phase and join guards.**
+- [ ] **P1-00 Test harness + smoke test.** *(the browser-level check exists: `tests/phone-check`, run with `npm test` there. Engine unit tests with Vitest are still open.)* Vitest + `npm test`; `tsc --noEmit` and tests in a *separate* CI workflow (no deploy). Add `npm run smoke`: a `socket.io-client` script that boots the server, joins 5 bots, starts, runs a night and a day, and asserts the process is still alive. Turn every "Ran" finding in the log above into a test (`it.fails` until fixed, so each fix flips one green).
+- [ ] **P1-01 Phase and join guards.** *(done in Pass A except `maxPlayers`, see above)*
   - Reject `game:advancePhase` and admin **Force Phase** while `phase === 'lobby'` (the moderator must Start first); make advancing from `ended` a no-op.
   - Reject `lobby:join` unless `phase === 'lobby'` (latecomers join before Start; spectator mode is Pass 3, low priority).
   - Enforce `maxPlayers` on join and on start.
   - Validate names in `lobby:join` / `addPlayer`: trim, 1–20 chars, strip control characters, case-insensitive unique.
-- [ ] **P1-02 Crash guard + payload validation.** Every socket event gets a Zod schema; a bad or missing payload returns an `error` event instead of throwing. Wrap handlers in a `safe()` helper that catches, logs and emits `error`. Add `process.on('uncaughtException' | 'unhandledRejection')` that *logs and keeps serving* (losing the whole game is worse than one bad event).
-- [ ] **P1-03 Remove player-side host controls (D1).** Delete `game:start`, `game:advancePhase`, `game:setMode` and `lobby:create` from the player namespace, and the matching host buttons in the client (check `frontend/client.js` for references first). The admin namespace is the only driver. `admin:createGame` stays the only way to make a game.
+- [ ] **P1-02 Crash guard + payload validation.** *(crash guard done in Pass A; per-event Zod schemas still open)* Every socket event gets a Zod schema; a bad or missing payload returns an `error` event instead of throwing. Wrap handlers in a `safe()` helper that catches, logs and emits `error`. Add `process.on('uncaughtException' | 'unhandledRejection')` that *logs and keeps serving* (losing the whole game is worse than one bad event).
+- [x] **P1-03 Remove player-side host controls (D1).** Delete `game:start`, `game:advancePhase`, `game:setMode` and `lobby:create` from the player namespace, and the matching host buttons in the client (check `frontend/client.js` for references first). The admin namespace is the only driver. `admin:createGame` stays the only way to make a game.
 - [ ] **P1-04 Action validation.**
   - `vote:cast`: voter alive, `canVoteDuringDay`, target exists and alive. `resolveDay` also ignores dead voters.
   - `night:action` and `admin:submitNightAction`: actor alive, target exists and alive, self-target only where the role allows (Doctor); wolves can't target wolves.
@@ -66,8 +99,8 @@ Do in this order. Tests first so Pass 2's refactor has a net.
 - [ ] **P1-08 De-duplicate start/vote logic.** `game:start` and `admin:startGame` copy the same role-emission block; extract `startGameAndAnnounce(roomCode)` (after P1-03 only the admin copy survives, so this may collapse to a rename). Extract `notifyVoteCast(...)` so `admin:castVote` also fires the player notifications (open item in `HANDOFF.md`). Replace the hardcoded `${5}` with `game.gameMode.minPlayers`.
 - [ ] **P1-09 Fair shuffle.** Replace `roles.sort(() => Math.random() - 0.5)` in `classic.ts` with Fisher–Yates.
 - [ ] **P1-10 Docs sync.** Keep `PROJECT_STATE.md` / README accurate as items land.
-- [ ] **P1-11 Disconnect detection.** Store `socket.data.roomCode` on create/join/rejoin and read it in the `disconnect` handler (or use the `disconnecting` event, where rooms are still populated). Add a two-socket test.
-- [ ] **P1-12 Rejoin tokens.** Replace `Math.random()` + timestamp with `crypto.randomUUID()`, and delete a game's tokens in `admin:endGame`.
+- [x] **P1-11 Disconnect detection.** Store `socket.data.roomCode` on create/join/rejoin and read it in the `disconnect` handler (or use the `disconnecting` event, where rooms are still populated). Add a two-socket test.
+- [ ] **P1-12 Rejoin tokens.** *(token cleanup done in Pass A; `crypto.randomUUID()` still open)* Replace `Math.random()` + timestamp with `crypto.randomUUID()`, and delete a game's tokens in `admin:endGame`.
 
 **Exit criteria:** `npm test` and `npm run smoke` green · lobby Force Phase, payload-less emits and a late join all return a clean `error` and the server stays up · 3 wolves = 1 death per night · tie handled per D3 · a disconnected player shows as disconnected · deployed and smoke-tested against the real Fly app *(see Deploy hygiene)*.
 

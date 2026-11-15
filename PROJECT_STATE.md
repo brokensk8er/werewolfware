@@ -1,6 +1,6 @@
 # Werewolf Game — Project State Summary
 
-**Last Updated:** September 19, 2026 (roadmap moved to `TODO.md`)  
+**Last Updated:** November 15, 2026 (Pass A merged; roadmap in `TODO.md`)
 **Current Branch:** `main`
 
 ## What's Done ✅
@@ -39,22 +39,30 @@
 
 ## What's TODO
 
-**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-01, runtime-verified). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
+**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-13; Pass A merged 2026-11-15). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
 
-- **Pass 1 — Harden + safety net:** crash fixes (advance-from-lobby, payload-less events, late joins), payload validation, remove player-side host controls, action validation, wolf pack kill, day-vote ties, disconnect detection, rejoin token hardening, Vitest + smoke test.
-- **Pass 2 — Extensibility refactor:** stable player id (not socket id), split `server.ts`, single role registry, night-action pipeline with role priorities, vote-weight/assign/death hooks, composable win conditions. Proof: add Hunter with zero engine edits.
-- **Pass 3 — Party scale (10–30):** scaling table to 30, more roles, 30-bot load test.
-- **Pass 4 — Ops & mothballing:** deploy hygiene, annual pre-event checklist (Node 18 is past end-of-life), LAN fallback, runbook.
+- **Pass A — Night-stoppers:** done 2026-11-15.
+- **Pass B — One snapshot per phone:** the server sends each player their whole view; stable player id.
+- **Pass C — Player phone:** new screens, one job per phase, role hidden until held.
+- **Pass D — Moderator panel:** role setup, result preview, player sheet, bring-back and undo.
+- **Pass E — Rules and roles:** wolf pack kill, vote ties, action validation, night-action pipeline, Hunter, scaling to 30.
+- **Pass F — Before the event:** one host, Node upgrade (18 is past end-of-life), load script, real-phone rehearsal, runbook.
 
-### Known gaps (details and repro evidence in TODO.md)
+### Fixed on 2026-11-15 (Pass A)
 
-- **Crashes (any one exits the server and loses the game):** `game:advancePhase` / Force Phase while in the lobby; an event with no payload; a late joiner (role `null`) hitting the game-end summary.
-- Disconnects are never detected (the `disconnect` handler reads `socket.rooms`, already empty), so the disconnected indicator never shows. Rejoin itself works.
-- Player-namespace `game:start` / `game:advancePhase` / `lobby:create` are unauthenticated (to be removed; the admin panel is the driver).
+Host buttons on player phones, phones that drop and reconnect, the moderator list on phones, Advance Phase in the lobby, events with no payload, late joiners, mid-game removal, the end screen, invisible moderator errors. `tests/phone-check` plays a 30-player game at phone size and checks all of these (47 checks).
+
+### Known gaps (details in TODO.md and the design proposal)
+
 - No action validation: dead players' votes count, nonexistent vote targets are accepted, chat is unbounded and open to the dead.
-- 3 wolves kill 3 players per night; vote ties go to the first-inserted target; `maxPlayers` is not enforced.
+- 3 wolves kill 3 players per night; vote ties go to the first-inserted target; `maxPlayers` (20) is not enforced, on purpose, until the role table reaches 30.
+- Change Role leaves the phone's night screen stale, and is discarded if used in the lobby. Mayor is missing from the Change Role list.
+- A page refresh loses private results (seer findings). Eliminate does not check for a win. End Game announces a village win.
+- The player screens are still a desktop layout on a phone: long scrolling pages, role always visible, low contrast. The redesign is passes B–D.
+- Player ids are still socket ids, so every reconnect changes them. The pages now cope; a stable id is Pass B.
 - Timers are display-only (by design under D1); the admin advances every phase.
 - README's "no engine changes needed for new roles" is not yet true: night/day logic is hard-coded by role id.
+- Not yet tested on real phones.
 
 ### Won't Do
 
