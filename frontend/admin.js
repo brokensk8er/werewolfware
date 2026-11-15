@@ -114,12 +114,17 @@ logoutBtn.addEventListener('click', async () => {
 // ─── Game connection ──────────────────────────────────────────────────────────
 
 async function connectToGame(user) {
-  const token = await user.getIdToken();
-
   adminSocket = io('https://werewolfware.fly.dev/admin');
 
-  adminSocket.on('connect', () => {
-    adminSocket.emit('admin:auth', { token });
+  // Sign-in tokens last one hour. Ask for one on every connect (Firebase renews it
+  // when needed) so a reconnect late in the evening is not refused.
+  adminSocket.on('connect', async () => {
+    try {
+      const token = await user.getIdToken();
+      adminSocket.emit('admin:auth', { token });
+    } catch (err) {
+      showAdminError('Could not refresh your sign-in. Reload the page and sign in again.');
+    }
   });
 
   adminSocket.on('admin:authed', () => {
@@ -153,8 +158,20 @@ async function connectToGame(user) {
 
   adminSocket.on('error', (data) => {
     pickerError.textContent = data.message;
+    showAdminError(data.message);
   });
 }
+
+// Visible on every view. The picker line above only shows before a game exists.
+const adminError = document.getElementById('admin-error');
+let adminErrorTimeout = null;
+function showAdminError(message) {
+  adminError.textContent = message;
+  adminError.classList.remove('hidden');
+  clearTimeout(adminErrorTimeout);
+  adminErrorTimeout = setTimeout(() => adminError.classList.add('hidden'), 8000);
+}
+adminError.addEventListener('click', () => adminError.classList.add('hidden'));
 
 createGameBtn.addEventListener('click', () => {
   if (adminSocket) {

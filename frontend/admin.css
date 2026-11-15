@@ -107,6 +107,17 @@ body {
 .picker-row     { display: flex; gap: 0.5rem; }
 .picker-error   { color: #f87171; font-size: 0.8rem; min-height: 1rem; }
 
+/* Server errors, shown on every view */
+.admin-error {
+  background: #7f1d1d;
+  color: #fff;
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  border-bottom: 1px solid #b91c1c;
+  cursor: pointer;
+}
+.admin-error.hidden { display: none; }
+
 /* ── Mobile tab nav ──────────────────────────────────────────────────────── */
 #mobile-tabs {
   display: none; /* shown only on mobile */
@@ -460,45 +471,51 @@ input:focus, select:focus { border-color: var(--primary); }
     display: flex;
   }
 
+  /* One column. The active tab is the only child with height, and it scrolls. */
   #main-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     overflow: hidden;
   }
 
-  /* Tab panes: only the active one is visible */
-  .tab-pane {
+  /* The left panel is only a wrapper on phones: its two panes (Players, Controls)
+     sit directly in the column, so each can be the scrolling region. */
+  #left-panel {
+    display: contents;
+  }
+
+  /* Tab panes: only the active one is visible. min-height: 0 is what lets a long
+     player list scroll instead of pushing Start Game off the screen. */
+  .tab-pane,
+  #right-panel {
     display: none;
+  }
+
+  .tab-pane.tab-active,
+  #right-panel.tab-active {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  .tab-pane.tab-active {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-  }
+  /* Sections keep their natural height; the pane scrolls, they do not squash */
+  .tab-pane.tab-active > .panel { flex-shrink: 0; }
 
-  /* Left panel loses its sidebar border on mobile */
-  #left-panel {
-    border-right: none;
-    overflow: visible;
-  }
-
-  /* Each panel section inside the left pane stacks normally */
+  /* Each panel section inside a pane stacks normally */
   .panel { border-bottom: 1px solid var(--border); }
 
-  /* Log panel fills its tab */
-  #right-panel {
-    overflow: hidden;
-  }
-
+  /* Log panel fills its tab; the log itself scrolls inside it */
   #right-panel.tab-active {
     overflow: hidden;
   }
 
-  .panel.full-height {
-    flex: 1;
+  .tab-pane.tab-active > .panel.full-height {
+    flex: 1 1 0;
+    min-height: 0;
     overflow: hidden;
   }
 
