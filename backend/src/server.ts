@@ -63,7 +63,15 @@ async function initFirebaseAdmin() {
   }
 }
 
+// Local test runs only: lets the phone-size check open the moderator page without
+// Google sign-in. Refused whenever the server is deployed (Fly sets both of these).
+const TEST_ADMIN_ALLOWED =
+  process.env.ALLOW_TEST_ADMIN === '1' &&
+  process.env.NODE_ENV !== 'production' &&
+  !process.env.FLY_APP_NAME;
+
 async function verifyAdminToken(token: string): Promise<string | null> {
+  if (TEST_ADMIN_ALLOWED && token === 'local-test') return 'local-test-admin';
   if (!firebaseAdminAuth || !firebaseAdminDb) return null;
   try {
     const decoded = await firebaseAdminAuth.verifyIdToken(token);
@@ -87,8 +95,11 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Helper to get room code from socket
+// Helper to get room code from socket. The room is recorded on the socket when a
+// player joins or rejoins, because socket.rooms is already empty by the time the
+// 'disconnect' event fires.
 function getRoomCode(socket: any): string | null {
+  if (socket.data?.roomCode) return socket.data.roomCode as string;
   for (const room of socket.rooms) {
     if (room !== socket.id) return room as string;
   }
@@ -198,6 +209,77 @@ function broadcastAdminVoteUpdate(roomCode: string) {
   emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
 }
 
+// Player list as phones see it. Always carries the alive and connected flags, so a
+// list sent mid-game (after a removal) cannot make every player look dead.
+function publicPlayers(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return [];
+  return Array.from(game.players.values()).map((p) => ({
+    id: p.id,
+    name: p.name,
+    alive: p.alive,
+    connected: p.connected,
+  }));
+}
+
+// Moderator-only note. Connection changes go here, not into the room chat:
+// with 30 phones sleeping and waking they would bury everything else.
+function noteForAdmins(roomCode: string, text: string) {
+  const entry = gameManager.pushAdminLog(roomCode, { category: 'system', senderName: '📶 Connection', text });
+  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+}
+
+// Forget a removed player's rejoin token so a refresh cannot bring them back.
+function dropRejoinTokens(roomCode: string, playerId?: string) {
+  for (const [token, entry] of rejoinTokens) {
+    if (entry.roomCode === roomCode && (playerId === undefined || entry.playerId === playerId)) {
+      rejoinTokens.delete(token);
+    }
+  }
+}
+
+// Wrap every handler on a socket: a missing payload becomes {}, and a thrown error
+// is logged and reported to that one client instead of stopping the server.
+function guardSocket(socket: any) {
+  const rawOn = socket.on.bind(socket);
+  socket.on = (event: string, handler: (...args: any[]) => any) =>
+    rawOn(event, async (...args: any[]) => {
+      try {
+        if (event !== 'disconnect' && (args[0] === null || typeof args[0] !== 'object')) args[0] = {};
+        await handler(...args);
+      } catch (err) {
+        console.error(`[handler] ${event} failed:`, err);
+        socket.emit('error', { message: 'That did not work. Please try again.' });
+      }
+    });
+}
+
+// Current votes to phones and moderators. Player ids change on reconnect, so the
+// tally is resent after a reconnect or a removal.
+function broadcastVotes(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return;
+  const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+    voterId,
+    voterName: game.players.get(voterId)?.name || 'Unknown',
+    targetId,
+    targetName: game.players.get(targetId)?.name || 'Unknown',
+  }));
+  io.to(roomCode).emit('vote:updated', { votes });
+  emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+}
+
+// A removed player's vote and night action go with them, as do choices aimed at them.
+function forgetPlayerChoices(roomCode: string, playerId: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return;
+  game.dayVotes.delete(playerId);
+  for (const [voterId, targetId] of game.dayVotes) if (targetId === playerId) game.dayVotes.delete(voterId);
+  game.nightActions.delete(playerId);
+  for (const [actorId, action] of game.nightActions) if (action.targetId === playerId) game.nightActions.delete(actorId);
+  game.protectedPlayers.delete(playerId);
+}
+
 // Announce to room + log to admin
 function announce(
   roomCode: string,
@@ -239,33 +321,37 @@ function announcePrivate(
 // ─── Player namespace ─────────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
+  guardSocket(socket);
   console.log(`Player connected: ${socket.id}`);
 
-  socket.on('lobby:create', (data) => {
-    const roomCode = Math.random().toString(36).substring(7).toUpperCase();
-    gameManager.createGame(roomCode, socket.id, ClassicMode);
-    const creatorPlayer = gameManager.addPlayer(roomCode, socket.id, data.playerName);
-    if (creatorPlayer) rejoinTokens.set(creatorPlayer.rejoinToken, { roomCode, playerId: socket.id });
-
-    socket.join(roomCode);
-    socket.emit('lobby:created', { roomCode, playerId: socket.id, token: creatorPlayer?.rejoinToken ?? '' });
-
-    const snapshot = gameManager.getSnapshot(roomCode);
-    io.to(roomCode).emit('lobby:updated', {
-      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
-    });
-    broadcastAdminPlayerUpdate(roomCode);
-    console.log(`Game created: ${roomCode}`);
-  });
+  // Players cannot create, start or advance a game. The moderator panel is the
+  // only driver (decision D1); those handlers were removed on purpose.
 
   socket.on('lobby:join', (data) => {
-    const { playerName } = data;
+    const playerName = typeof data.playerName === 'string' ? data.playerName.trim() : '';
     // Auto-resolve the single active game; ignore any client-supplied roomCode
     const roomCode = getActiveRoomCode();
     const game = roomCode ? gameManager.getGame(roomCode) : null;
 
     if (!game || !roomCode) {
       socket.emit('error', { message: 'No active game found' });
+      return;
+    }
+    if (game.phase !== 'lobby') {
+      socket.emit('error', { message: 'The game has already started. Ask the moderator.' });
+      return;
+    }
+    if (playerName.length < 1 || playerName.length > 20) {
+      socket.emit('error', { message: 'Please enter a name of 1 to 20 characters.' });
+      return;
+    }
+    const taken = Array.from(game.players.values()).some((p) => p.name.toLowerCase() === playerName.toLowerCase());
+    if (taken) {
+      socket.emit('error', { message: 'That name is taken. Add an initial or a nickname.' });
+      return;
+    }
+    if (game.players.has(socket.id)) {
+      socket.emit('error', { message: 'You have already joined.' });
       return;
     }
 
@@ -277,68 +363,12 @@ io.on('connection', (socket) => {
 
     rejoinTokens.set(player.rejoinToken, { roomCode, playerId: socket.id });
     socket.join(roomCode);
-    socket.emit('lobby:joined', { roomCode, playerId: socket.id, token: player.rejoinToken });
+    socket.data.roomCode = roomCode;
+    socket.emit('lobby:joined', { roomCode, playerId: socket.id, token: player.rejoinToken, playerName: player.name });
 
-    const snapshot = gameManager.getSnapshot(roomCode);
-    io.to(roomCode).emit('lobby:updated', {
-      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
-    });
+    io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
     broadcastAdminPlayerUpdate(roomCode);
     console.log(`Player ${playerName} joined room ${roomCode}`);
-  });
-
-  socket.on('game:start', () => {
-    const roomCode = getRoomCode(socket);
-    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
-
-    if (!gameManager.startGame(roomCode)) {
-      socket.emit('error', { message: 'Cannot start game yet' });
-      return;
-    }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game) return;
-
-    for (const [playerId, player] of game.players) {
-      io.to(playerId).emit('game:started', {
-        playerId,
-        role: player.role,
-        players: Array.from(game.players.values()).map((p) => ({
-          id: p.id,
-          name: p.name,
-          alive: p.alive,
-        })),
-      });
-      announcePrivate(
-        playerId,
-        `You are the ${player.role.name}. ${player.role.description}`,
-        '🃏 Your Role',
-        'private',
-        roomCode,
-        `→ ${player.name}`,
-      );
-    }
-
-    announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
-    announce(roomCode, pick(PHASE_NIGHT), 'system');
-    const startSeconds = game.customPhaseDuration ?? 30;
-
-    io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: startSeconds });
-    broadcastAdminPlayerUpdate(roomCode);
-    broadcastAdminPhaseUpdate(roomCode, 'night', startSeconds);
-    console.log(`Game started in room ${roomCode}`);
-  });
-
-  socket.on('game:advancePhase', () => {
-    const roomCode = getRoomCode(socket);
-    if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
-    resolveAndAdvance(roomCode);
-  });
-
-  socket.on('game:setMode', (_data) => {
-    // TODO (low priority): game:setMode is a stub — only ClassicMode exists.
-    // If a second game mode is added, wire up mode selection in the lobby UI
-    // and store the chosen mode on the GameState before game:start.
   });
 
   socket.on('vote:cast', (data) => {
@@ -499,40 +529,44 @@ io.on('connection', (socket) => {
     }
 
     const newId = socket.id;
+    if (!game.players.has(oldId)) {
+      // Removed by the moderator since the token was issued
+      rejoinTokens.delete(data.token);
+      socket.emit('error', { message: 'You are no longer in this game.' });
+      return;
+    }
     gameManager.reassignPlayerId(roomCode, oldId, newId);
     rejoinTokens.set(data.token, { roomCode, playerId: newId });
     gameManager.setConnected(roomCode, newId, true);
 
-    socket.join(roomCode);
-
     const player = game.players.get(newId);
     if (!player) return;
 
+    socket.join(roomCode);
+    socket.data.roomCode = roomCode;
+
     if (game.phase === 'lobby') {
-      socket.emit('lobby:joined', { roomCode, playerId: newId, token: data.token });
-      const snapshot = gameManager.getSnapshot(roomCode);
-      socket.emit('lobby:updated', { players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })) });
+      socket.emit('lobby:joined', { roomCode, playerId: newId, token: data.token, playerName: player.name });
+      socket.emit('lobby:updated', { players: publicPlayers(roomCode) });
     } else {
       const secondsRemaining = game.phaseEndsAt
         ? Math.max(0, Math.round((game.phaseEndsAt.getTime() - Date.now()) / 1000))
         : 0;
       socket.emit('game:reconnected', {
         playerId: newId,
+        playerName: player.name,
         role: player.role,
-        players: Array.from(game.players.values()).map((p) => ({
-          id: p.id,
-          name: p.name,
-          alive: p.alive,
-          connected: p.connected,
-        })),
+        players: publicPlayers(roomCode),
         phase: game.phase,
         secondsRemaining,
         recentMessages: game.chatMessages.slice(-20),
       });
     }
 
-    io.to(roomCode).emit('player:connectionChanged', { playerId: newId, playerName: player.name, connected: true });
-    announce(roomCode, `${player.name} has reconnected.`, 'system');
+    // The player's id changed, so phones need the whole list, not a one-row patch
+    io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
+    if (game.phase === 'day') broadcastVotes(roomCode);
+    noteForAdmins(roomCode, `${player.name} reconnected.`);
     broadcastAdminPlayerUpdate(roomCode);
     console.log(`Player ${player.name} reconnected: ${oldId} -> ${newId}`);
   });
@@ -545,7 +579,7 @@ io.on('connection', (socket) => {
       if (player) {
         gameManager.setConnected(roomCode, socket.id, false);
         io.to(roomCode).emit('player:connectionChanged', { playerId: socket.id, playerName: player.name, connected: false });
-        announce(roomCode, `${player.name} has disconnected. Waiting for them to return...`, 'system');
+        noteForAdmins(roomCode, `${player.name} lost connection.`);
         broadcastAdminPlayerUpdate(roomCode);
       }
     }
@@ -555,9 +589,14 @@ io.on('connection', (socket) => {
 
 // ─── Shared phase resolution (used by both player and admin advance) ──────────
 
-function resolveAndAdvance(roomCode: string) {
+// Returns an error message when the phase cannot be advanced, otherwise null.
+function resolveAndAdvance(roomCode: string): string | null {
   const game = gameManager.getGame(roomCode);
-  if (!game) return;
+  if (!game) return 'No active game';
+  // Advancing from the lobby used to jump to night with no roles dealt, and the
+  // end-of-game summary then crashed the server.
+  if (game.phase === 'lobby') return 'Start the game first. Advance Phase works once roles are dealt.';
+  if (game.phase === 'ended') return 'The game is over. Use End Game to clear it.';
 
   if (game.phase === 'night') {
     const { eliminated } = gameManager.resolveNight(roomCode);
@@ -641,6 +680,7 @@ function resolveAndAdvance(roomCode: string) {
 
   broadcastAdminPlayerUpdate(roomCode);
   console.log(`Phase advanced to ${nextPhase} in room ${roomCode}`);
+  return null;
 }
 
 // ─── Admin helpers ────────────────────────────────────────────────────────────
@@ -668,6 +708,7 @@ function attachAdminToRoom(socket: any, uid: string, roomCode: string) {
 // ─── Admin namespace ──────────────────────────────────────────────────────────
 
 adminNS.on('connection', (socket: any) => {
+  guardSocket(socket);
   console.log(`[Admin] socket connected: ${socket.id}`);
 
   socket.on('admin:auth', async (data: { token: string }) => {
@@ -712,7 +753,8 @@ adminNS.on('connection', (socket: any) => {
   socket.on('admin:forcePhase', () => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
-    resolveAndAdvance(roomCode);
+    const problem = resolveAndAdvance(roomCode);
+    if (problem) socket.emit('error', { message: problem });
   });
 
   socket.on('admin:changeRole', (data: { playerId: string; roleId: string }) => {
@@ -779,19 +821,20 @@ adminNS.on('connection', (socket: any) => {
 
     // Remove from game state
     game.players.delete(data.playerId);
+    dropRejoinTokens(roomCode, data.playerId);
+    forgetPlayerChoices(roomCode, data.playerId);
 
-    // Disconnect their socket
+    // Detach their socket from the room
     const playerSocket = io.sockets.sockets.get(data.playerId);
     if (playerSocket) {
       playerSocket.leave(roomCode);
-      playerSocket.emit('error', { message: 'You have been removed from the game by the moderator.' });
+      playerSocket.data.roomCode = undefined;
+      playerSocket.emit('player:removed', { message: 'You have been removed from the game by the moderator.' });
     }
 
     // Notify room
-    const snapshot = gameManager.getSnapshot(roomCode);
-    io.to(roomCode).emit('lobby:updated', {
-      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
-    });
+    io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
+    if (game.phase === 'day') broadcastVotes(roomCode);
     announce(roomCode, `${player.name} was removed from the game.`, 'system');
     broadcastAdminPlayerUpdate(roomCode);
   });
@@ -845,6 +888,7 @@ adminNS.on('connection', (socket: any) => {
 
     const watchers = adminWatchers.get(roomCode);
     adminWatchers.delete(roomCode);
+    dropRejoinTokens(roomCode);
     gameManager.deleteGame(roomCode);
 
     if (watchers) {
@@ -871,10 +915,7 @@ adminNS.on('connection', (socket: any) => {
     const player = gameManager.addPlayer(roomCode, botId, data.playerName.trim());
     if (!player) { socket.emit('error', { message: 'Could not add player' }); return; }
 
-    const snapshot = gameManager.getSnapshot(roomCode);
-    io.to(roomCode).emit('lobby:updated', {
-      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
-    });
+    io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
 
     const entry = gameManager.pushAdminLog(roomCode, {
       category: 'system',
@@ -897,19 +938,19 @@ adminNS.on('connection', (socket: any) => {
     if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
 
     game.players.delete(data.playerId);
+    dropRejoinTokens(roomCode, data.playerId);
+    forgetPlayerChoices(roomCode, data.playerId);
 
     if (!data.playerId.startsWith('bot_')) {
       const playerSocket = io.sockets.sockets.get(data.playerId);
       if (playerSocket) {
         playerSocket.leave(roomCode);
-        playerSocket.emit('error', { message: 'You have been removed from the game by the moderator.' });
+        playerSocket.data.roomCode = undefined;
+        playerSocket.emit('player:removed', { message: 'You have been removed from the game by the moderator.' });
       }
     }
 
-    const snapshot = gameManager.getSnapshot(roomCode);
-    io.to(roomCode).emit('lobby:updated', {
-      players: snapshot.players.map((p: any) => ({ id: p.id, name: p.name })),
-    });
+    io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
 
     const entry = gameManager.pushAdminLog(roomCode, {
       category: 'system',
@@ -1061,6 +1102,10 @@ adminNS.on('connection', (socket: any) => {
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
+
+// Last resort: all game state is in memory, so one stray error must not end the night.
+process.on('uncaughtException', (err) => console.error('[uncaughtException]', err));
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err));
 
 initFirebaseAdmin().then(() => {
   httpServer.listen(PORT, () => {

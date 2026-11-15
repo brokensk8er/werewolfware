@@ -110,11 +110,8 @@ export interface AdminServerEvents {
 
 // Socket.io events (client -> server)
 export interface ClientEvents {
-  'lobby:create': (data: { playerName: string }) => void;
-  'lobby:join': (data: { roomCode: string; playerName: string }) => void;
-  'game:start': () => void;
-  'game:advancePhase': () => void;
-  'game:setMode': (data: { modeId: string }) => void;
+  // Players cannot create, start or advance a game; the moderator panel does that.
+  'lobby:join': (data: { playerName: string }) => void;
   'game:rejoin': (data: { token: string }) => void;
   'vote:cast': (data: { targetId: string }) => void;
   'night:action': (data: { targetId: string }) => void;
@@ -124,11 +121,13 @@ export interface ClientEvents {
 
 // Socket.io events (server -> client)
 export interface ServerEvents {
-  'lobby:created': (data: { roomCode: string; playerId: string; token: string }) => void;
-  'lobby:joined': (data: { roomCode: string; playerId: string; token: string }) => void;
-  'lobby:updated': (data: { players: Array<{ id: string; name: string }> }) => void;
+  'lobby:joined': (data: { roomCode: string; playerId: string; token: string; playerName: string }) => void;
+  // Sent in the lobby and mid-game (after a removal or reconnect), so it always carries the flags.
+  'lobby:updated': (data: { players: Array<{ id: string; name: string; alive: boolean; connected: boolean }> }) => void;
+  'player:removed': (data: { message: string }) => void;
   'game:reconnected': (data: {
     playerId: string;
+    playerName: string;
     role: Role;
     players: Array<{ id: string; name: string; alive: boolean; connected: boolean }>;
     phase: GamePhase;
