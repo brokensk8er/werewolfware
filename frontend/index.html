@@ -19,6 +19,9 @@
             id="player-name"
             placeholder="Your name"
             class="input"
+            maxlength="20"
+            autocomplete="off"
+            autocapitalize="words"
           >
           <button id="join-submit" class="btn btn-primary">Join Game</button>
         </div>
@@ -35,10 +38,6 @@
         <div class="player-list">
           <h3>Players</h3>
           <ul id="players-ul"></ul>
-        </div>
-
-        <div id="game-controls" class="hidden">
-          <button id="start-game-btn" class="btn btn-primary">Start Game</button>
         </div>
       </div>
     </div>
@@ -58,10 +57,6 @@
         </div>
 
         <div class="game-content">
-          <div id="host-controls" class="hidden">
-            <button id="advance-phase-btn" class="btn btn-primary">Advance Phase</button>
-          </div>
-
           <div id="role-card" class="role-card">
             <h2 id="role-name">Role</h2>
             <p id="role-description">Description</p>

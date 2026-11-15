@@ -314,6 +314,11 @@ h3 {
   border: 2px solid var(--primary);
 }
 
+/* No countdown to show (game over, or waiting): hide the empty box */
+.timer:empty {
+  display: none;
+}
+
 .role-card {
   padding: 2rem;
   background: #222;

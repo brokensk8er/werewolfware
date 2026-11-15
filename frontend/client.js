@@ -15,9 +15,13 @@ const socket = io('https://werewolfware.fly.dev');
 
 let rejoinPending = false;
 
+// Every new connection gets a new id on the server, so the phone has to say who it
+// is each time: on page load, and again whenever the connection drops and repairs
+// itself (a phone waking from sleep). Without this the phone looks fine but the
+// server ignores it.
 socket.on('connect', () => {
   const token = localStorage.getItem('werewolf_rejoin_token');
-  if (token && !gameState.playerId) {
+  if (token) {
     rejoinPending = true;
     socket.emit('game:rejoin', { token });
   }
@@ -31,9 +35,14 @@ let gameState = {
   role: null,
   players: [],
   phase: 'lobby',
-  isHost: false,
   isDead: false,
 };
+
+// What this player has picked in the current phase, by name. Names survive a
+// reconnect (ids do not), so lists can be redrawn without losing the choice.
+let myVoteName = null;
+let myTargetName = null;
+let lastVotes = [];
 
 let timerInterval = null;
 
@@ -49,8 +58,6 @@ const joinSubmit = document.getElementById('join-submit');
 
 const playersUl = document.getElementById('players-ul');
 const gamePlayersUl = document.getElementById('game-players-ul');
-const gameControlsDiv = document.getElementById('game-controls');
-const startGameBtn = document.getElementById('start-game-btn');
 
 const phaseTitle = document.getElementById('phase-title');
 const timer = document.getElementById('timer');
@@ -65,12 +72,6 @@ const nightInstruction = document.getElementById('night-instruction');
 
 const voteList = document.getElementById('vote-list');
 const targetList = document.getElementById('target-list');
-
-const hostControls = document.getElementById('host-controls');
-const advancePhaseBtn = document.getElementById('advance-phase-btn');
-advancePhaseBtn.addEventListener('click', () => {
-  socket.emit('game:advancePhase');
-});
 
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
@@ -117,33 +118,35 @@ playerName.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') joinSubmit.click();
 });
 
-startGameBtn.addEventListener('click', () => {
-  socket.emit('game:start');
-});
-
 // Socket.io event handlers
 socket.on('lobby:joined', (data) => {
+  rejoinPending = false;
   gameState.roomCode = data.roomCode;
   gameState.playerId = data.playerId;
+  if (data.playerName) gameState.playerName = data.playerName;
   if (data.token) localStorage.setItem('werewolf_rejoin_token', data.token);
   showLobbyWait();
 });
 
-socket.on('lobby:created', (data) => {
-  gameState.roomCode = data.roomCode;
-  gameState.playerId = data.playerId;
-  if (data.token) localStorage.setItem('werewolf_rejoin_token', data.token);
-  showLobbyWait();
-});
-
+// Sent in the lobby, and mid-game when someone is removed or reconnects.
 socket.on('lobby:updated', (data) => {
   gameState.players = data.players;
   updatePlayerList();
+  if (gameState.phase === 'lobby') return;
 
-  // Show start button only for host if min players met
-  if (gameState.isHost && data.players.length >= 5) {
-    gameControlsDiv.classList.remove('hidden');
+  if (gameState.isDead) {
+    updateGhostPlayerLists();
+    return;
   }
+  updateGamePlayerList();
+  if (gameState.phase === 'day') renderVoteList();
+  if (gameState.phase === 'night' && gameState.role && gameState.role.hasNightAction) renderTargetList();
+});
+
+socket.on('player:removed', (data) => {
+  localStorage.removeItem('werewolf_rejoin_token');
+  showError(data.message);
+  setTimeout(() => location.reload(), 3000);
 });
 
 socket.on('game:started', (data) => {
@@ -159,6 +162,7 @@ socket.on('game:started', (data) => {
 socket.on('game:reconnected', (data) => {
   rejoinPending = false;
   gameState.playerId = data.playerId;
+  if (data.playerName) gameState.playerName = data.playerName;
   gameState.role = data.role;
   gameState.players = data.players;
   gameState.phase = data.phase;
@@ -175,7 +179,9 @@ socket.on('game:reconnected', (data) => {
     updateGamePlayerList();
     document.getElementById('nameplate-name').textContent = gameState.playerName || 'You';
     document.getElementById('nameplate-role').textContent = data.role?.name || '';
-    data.recentMessages.forEach((msg) => appendChatMessage(msg));
+    // After a page refresh the chat is empty and gets the recent messages back.
+    // After a silent reconnect the messages are still on screen, so skip them.
+    if (chatMessages.children.length === 0) data.recentMessages.forEach((msg) => appendChatMessage(msg));
     updatePhaseDisplay(data.phase, data.secondsRemaining);
   }
 });
@@ -192,6 +198,13 @@ socket.on('player:connectionChanged', (data) => {
 });
 
 socket.on('phase:changed', (data) => {
+  // A real phase change starts a fresh choice. The moderator setting the timer
+  // sends the same phase again, and must not clear what people picked.
+  if (data.phase !== gameState.phase) {
+    myVoteName = null;
+    myTargetName = null;
+    lastVotes = [];
+  }
   gameState.phase = data.phase;
   if (gameState.isDead) {
     updateGhostPhaseBadge(data.phase);
@@ -230,8 +243,13 @@ socket.on('night:actionRecorded', (data) => {
 });
 
 socket.on('vote:updated', (data) => {
+  lastVotes = data.votes;
+  applyVoteCounts();
+});
+
+function applyVoteCounts() {
   const voteMap = new Map();
-  for (const vote of data.votes) {
+  for (const vote of lastVotes) {
     voteMap.set(vote.targetId, (voteMap.get(vote.targetId) || 0) + 1);
   }
   // Only touch the count badge — never rewrite the card's name or structure
@@ -240,7 +258,7 @@ socket.on('vote:updated', (data) => {
     const badge = card.querySelector('.vote-count-badge');
     if (badge) badge.textContent = count > 0 ? ` (${count} vote${count !== 1 ? 's' : ''})` : '';
   });
-});
+}
 
 socket.on('vote:result', (data) => {
   showError(`${data.eliminatedName} was voted out with ${data.voteCount} votes!`);
@@ -252,12 +270,14 @@ socket.on('chat:message', (data) => {
 
 socket.on('game:ended', (data) => {
   localStorage.removeItem('werewolf_rejoin_token');
+  gameState.phase = 'ended';
   if (gameState.isDead) {
     ghostGameEnded.classList.remove('hidden');
     ghostWinnerTitle.textContent = `${data.winner.toUpperCase()} WINS!`;
     ghostWinReason.textContent = data.winReason;
+    updateGhostPhaseBadge('ended');
   } else {
-    showGameEnded(data.winner, data.winReason);
+    showGameEnded(data.winner, data.winReason, data.players);
   }
 });
 
@@ -267,18 +287,27 @@ socket.on('ghost:message', (data) => {
 
 socket.on('error', (data) => {
   if (rejoinPending) {
+    // The saved seat is gone: the game ended, was reset, or the server restarted.
     rejoinPending = false;
     localStorage.removeItem('werewolf_rejoin_token');
+    if (gameState.playerId) {
+      showError('This game has ended or was reset.');
+      setTimeout(() => location.reload(), 3000);
+    }
+    // On a fresh page a stale seat is not the player's problem, so say nothing.
+    return;
   }
   showError(data.message);
 });
 
 // Helper functions
+let errorTimeout = null;
 function showError(message) {
   const errorMessage = document.getElementById('error-message');
   errorMessage.textContent = message;
   errorAlert.classList.remove('hidden');
-  setTimeout(() => {
+  clearTimeout(errorTimeout);
+  errorTimeout = setTimeout(() => {
     errorAlert.classList.add('hidden');
   }, 5000);
 }
@@ -289,6 +318,7 @@ function showLobbyWait() {
 }
 
 function showGameScreen() {
+  lobbyScreen.classList.add('hidden');
   lobbyWaitScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
 }
@@ -333,11 +363,12 @@ function updatePhaseDisplay(phase, secondsRemaining) {
   nightPhaseDiv.classList.add('hidden');
   gameEndedDiv.classList.add('hidden');
 
-  // Show host controls only during active game phases
-  if (gameState.isHost && phase !== 'ended') {
-    hostControls.classList.remove('hidden');
-  } else {
-    hostControls.classList.add('hidden');
+  if (phase !== 'day' && phase !== 'night') {
+    // Rejoined after the game finished, or before it started
+    phaseTitle.textContent = phase === 'ended' ? 'Game over' : 'Waiting';
+    clearInterval(timerInterval);
+    timer.textContent = '';
+    return;
   }
 
   phaseTitle.textContent = phase === 'day' ? '☀️ Day' : '🌙 Night';
@@ -352,6 +383,7 @@ function updatePhaseDisplay(phase, secondsRemaining) {
       renderTargetList();
     } else {
       nightInstruction.textContent = 'Waiting for night actions...';
+      targetList.innerHTML = '';
     }
   }
 
@@ -383,30 +415,45 @@ function renderVoteList() {
     badge.className = 'vote-count-badge';
     card.append(nameEl, badge);
 
+    if (player.name === myVoteName) card.classList.add('selected');
+
     card.addEventListener('click', () => {
       document.querySelectorAll('#vote-list .player-card').forEach((c) => c.classList.remove('selected'));
       socket.emit('vote:cast', { targetId: player.id });
+      myVoteName = player.name;
       card.classList.add('selected');
     });
     voteList.appendChild(card);
   });
+  applyVoteCounts();
 }
 
 function renderTargetList() {
   targetList.innerHTML = '';
   gameState.players.forEach((player) => {
+    if (!player.alive) return;
     const card = document.createElement('div');
     card.className = 'player-card alive';
+    card.dataset.playerId = player.id;
     card.textContent = player.name;
+    if (player.name === myTargetName) card.classList.add('selected');
     card.addEventListener('click', () => {
+      document.querySelectorAll('#target-list .player-card').forEach((c) => c.classList.remove('selected'));
       socket.emit('night:action', { targetId: player.id });
+      myTargetName = player.name;
       card.classList.add('selected');
     });
     targetList.appendChild(card);
   });
 }
 
-function showGameEnded(winner, reason, players) {
+function showGameEnded(winner, reason, players = []) {
+  // Clear the phase panels and the countdown before showing the result
+  dayPhaseDiv.classList.add('hidden');
+  nightPhaseDiv.classList.add('hidden');
+  clearInterval(timerInterval);
+  timer.textContent = '';
+  phaseTitle.textContent = 'Game over';
   gameEndedDiv.classList.remove('hidden');
   document.getElementById('winner-title').textContent = `${winner.toUpperCase()} WINS!`;
   document.getElementById('win-reason').textContent = reason;
@@ -421,15 +468,15 @@ function showGameEnded(winner, reason, players) {
 
     const nameEl = document.createElement('div');
     nameEl.className = 'result-name';
-    nameEl.textContent = escapeHtml(player.name);
+    nameEl.textContent = player.name;
 
     const roleEl = document.createElement('div');
     roleEl.className = 'result-role';
-    roleEl.textContent = escapeHtml(player.role);
+    roleEl.textContent = player.role;
 
     const fateEl = document.createElement('div');
     fateEl.className = 'result-fate';
-    fateEl.textContent = escapeHtml(player.deathCause);
+    fateEl.textContent = player.deathCause || '';
 
     card.append(nameEl, roleEl, fateEl);
     resultsGrid.appendChild(card);
