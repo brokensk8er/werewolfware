@@ -1,6 +1,6 @@
 # Werewolf Game — Project State Summary
 
-**Last Updated:** November 15, 2026 (Pass A merged; roadmap in `TODO.md`)
+**Last Updated:** November 18, 2026 (Pass A2 merged; roadmap in `TODO.md`)
 **Current Branch:** `main`
 
 ## What's Done ✅
@@ -32,35 +32,43 @@
 ### Deployment
 - ✅ **Backend live** — `https://werewolfware.fly.dev` (Fly.io, 256MB VM)
 - ✅ **Frontend live** — GitHub Pages (`brokensk8er.github.io/werewolfware`)
-- ✅ `fly.toml` — Fly.io config (`min_machines_running = 1`; auto-stop/auto-start enabled — keep exactly one machine)
-- ✅ `.github/workflows/` — `deploy-frontend.yml` publishes Pages on `frontend/**` changes to `main`; `deploy-backend.yml` **deploys to Fly on `backend/**` changes to `main`** (or manually via `workflow_dispatch`). Docs-only changes trigger neither.
+- ✅ `fly.toml` — Fly.io config (`min_machines_running = 1`; auto-stop/auto-start enabled — keep exactly one machine). Node 24.
+- ✅ `.github/workflows/` — `check.yml` type-checks and runs `tests/phone-check`. `deploy-frontend.yml` publishes Pages on `frontend/**` changes to `main`; `deploy-backend.yml` **deploys to Fly on `backend/**` changes to `main`**. Both run `check.yml` first and deploy only if it passes. Docs-only changes trigger neither.
 - ✅ `DEPLOYMENT.md` — Step-by-step setup guide
 - N/A **Custom domain** — Not needed; players join via QR code
 
 ## What's TODO
 
-**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-13; Pass A merged 2026-11-15). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
+**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-13; Pass A merged 2026-11-15, Pass A2 on 2026-11-18). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
 
 - **Pass A — Night-stoppers:** done 2026-11-15.
+- **Pass A2 — Rule fixes and deploy gate:** done 2026-11-18.
 - **Pass B — One snapshot per phone:** the server sends each player their whole view; stable player id.
 - **Pass C — Player phone:** new screens, one job per phase, role hidden until held.
 - **Pass D — Moderator panel:** role setup, result preview, player sheet, bring-back and undo.
-- **Pass E — Rules and roles:** wolf pack kill, vote ties, action validation, night-action pipeline, Hunter, scaling to 30.
-- **Pass F — Before the event:** one host, Node upgrade (18 is past end-of-life), load script, real-phone rehearsal, runbook.
+- **Pass E — Rules and roles:** night-action pipeline, Hunter, more roles, engine unit tests.
+- **Pass F — Before the event:** Fly-only hosting, load script, real-phone rehearsal, runbook.
 
 ### Fixed on 2026-11-15 (Pass A)
 
-Host buttons on player phones, phones that drop and reconnect, the moderator list on phones, Advance Phase in the lobby, events with no payload, late joiners, mid-game removal, the end screen, invisible moderator errors. `tests/phone-check` plays a 30-player game at phone size and checks all of these (47 checks).
+Host buttons on player phones, phones that drop and reconnect, the moderator list on phones, Advance Phase in the lobby, events with no payload, late joiners, mid-game removal, the end screen, invisible moderator errors.
+
+### Fixed on 2026-11-18 (Pass A2)
+
+One werewolf kill per night; vote ties eliminate nobody; every vote and night choice is checked; chat limits; votes hidden from phones; the Seer learns the team only; about one werewolf per six players with a 30-player cap; Eliminate checks for a win; End Game no longer announces a village win; Mayor in Change Role; the moderator log is kept at game end; Node 24. Every deploy now waits for `check.yml` (type check plus `tests/phone-check`: 38 rule checks, 49 phone-size checks).
+
+### Decisions (2026-11-16, details in TODO.md)
+
+In-person, moderator-run (D1). Only roles with a night action choose; everyone else sees a waiting screen; day and night have their own colour themes (D5). Werewolves see their pack on the held role card (D6). Town chat is replaced by private notes; ghost chat stays (D7). Votes hidden until voting closes (D8). Seer learns the team (D9). About one werewolf per six players (D10). Google sign-in only (D11). Fly only, no GitHub Pages (D12).
 
 ### Known gaps (details in TODO.md and the design proposal)
 
-- No action validation: dead players' votes count, nonexistent vote targets are accepted, chat is unbounded and open to the dead.
-- 3 wolves kill 3 players per night; vote ties go to the first-inserted target; `maxPlayers` (20) is not enforced, on purpose, until the role table reaches 30.
-- Change Role leaves the phone's night screen stale, and is discarded if used in the lobby. Mayor is missing from the Change Role list.
-- A page refresh loses private results (seer findings). Eliminate does not check for a win. End Game announces a village win.
+- Change Role mid-game leaves the phone's night screen stale until the phase changes.
+- A page refresh loses private results (seer findings). Roles show as a dash after a moderator reload.
 - The player screens are still a desktop layout on a phone: long scrolling pages, role always visible, low contrast. The redesign is passes B–D.
-- Player ids are still socket ids, so every reconnect changes them. The pages now cope; a stable id is Pass B.
-- Timers are display-only (by design under D1); the admin advances every phase.
+- Player ids are still socket ids, so every reconnect changes them. The pages cope; a stable id is Pass B.
+- Pages still load from GitHub Pages and the socket.io CDN until Fly-only hosting (D12) lands.
+- Timers are display-only (by design under D1); the moderator advances every phase.
 - README's "no engine changes needed for new roles" is not yet true: night/day logic is hard-coded by role id.
 - Not yet tested on real phones.
 

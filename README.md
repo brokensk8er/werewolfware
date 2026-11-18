@@ -105,7 +105,7 @@ export const Villager: Role = {
 
 - **Villager** — No special powers
 - **Werewolf** — Kills someone each night
-- **Seer** — Investigates a player's role at night
+- **Seer** — Each night, learns whether one player is on the village or the werewolf team
 - **Doctor** — Protects a player from death at night
 
 ### Adding New Roles
