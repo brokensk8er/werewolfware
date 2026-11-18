@@ -1,0 +1,55 @@
+name: Check
+
+# Type-checks the server and plays a 30-player game at phone size (tests/phone-check).
+# Both deploy workflows run this first and only deploy if it passes.
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]   # pushes to main are checked by the deploy workflows
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js (same major version as the Dockerfile)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            tests/phone-check/package-lock.json
+
+      - name: Type-check and build the server
+        working-directory: backend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install the phone check
+        working-directory: tests/phone-check
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Check the rules, then play a 30-player game at phone size
+        working-directory: tests/phone-check
+        # One retry: a real bug fails both runs; a slow moment on the runner does not block a deploy
+        run: npm test || (echo "::warning::First run failed; retrying once" && npm test)
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-check-screens
+          path: tests/phone-check/.work/shots/
+          if-no-files-found: ignore
+          retention-days: 14

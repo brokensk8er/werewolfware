@@ -5,11 +5,19 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'Dockerfile'
+      - 'fly.toml'
       - '.github/workflows/deploy-backend.yml'
+      - '.github/workflows/check.yml'
   workflow_dispatch:
 
 jobs:
+  # Nothing reaches Fly unless the type check and the phone check pass
+  check:
+    uses: ./.github/workflows/check.yml
+
   deploy:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '24'
           cache: 'npm'
           cache-dependency-path: 'backend/package-lock.json'
 

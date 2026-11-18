@@ -6,6 +6,8 @@ on:
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
+      - '.github/workflows/check.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,7 +15,12 @@ permissions:
   id-token: write
 
 jobs:
+  # Nothing reaches Pages unless the type check and the phone check pass
+  check:
+    uses: ./.github/workflows/check.yml
+
   deploy:
+    needs: check
     runs-on: ubuntu-latest
     environment:
       name: github-pages
