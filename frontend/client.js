@@ -233,14 +233,30 @@ socket.on('player:eliminated', (data) => {
 });
 
 socket.on('seer:investigation', (data) => {
-  // Only seers see this
-  showError(`You investigated: ${data.targetName} is a ${data.role}`);
+  // Only seers see this. The Seer learns a team, not an exact role.
+  showError(`You investigated: ${data.targetName} is on the ${data.team === 'werewolf' ? 'WEREWOLF' : 'village'} team`);
 });
 
+// The server accepted the night choice: only now is it highlighted.
 socket.on('night:actionRecorded', (data) => {
   const target = gameState.players.find((p) => p.id === data.targetId);
-  showError(`Action recorded on ${target?.name}`);
+  if (!target) return;
+  myTargetName = target.name;
+  markSelected('#target-list', target.name);
+  showError(`Action recorded on ${target.name}`);
 });
+
+// The server accepted a vote: this player's, or one the moderator cast for them.
+socket.on('vote:recorded', (data) => {
+  myVoteName = data.targetName;
+  markSelected('#vote-list', data.targetName);
+});
+
+function markSelected(listSelector, name) {
+  document.querySelectorAll(`${listSelector} .player-card`).forEach((c) => {
+    c.classList.toggle('selected', c.dataset.playerName === name);
+  });
+}
 
 socket.on('vote:updated', (data) => {
   lastVotes = data.votes;
@@ -273,13 +289,18 @@ socket.on('game:ended', (data) => {
   gameState.phase = 'ended';
   if (gameState.isDead) {
     ghostGameEnded.classList.remove('hidden');
-    ghostWinnerTitle.textContent = `${data.winner.toUpperCase()} WINS!`;
+    ghostWinnerTitle.textContent = endTitle(data.winner);
     ghostWinReason.textContent = data.winReason;
     updateGhostPhaseBadge('ended');
   } else {
     showGameEnded(data.winner, data.winReason, data.players);
   }
 });
+
+// 'none' means the moderator ended the game without a winner.
+function endTitle(winner) {
+  return winner && winner !== 'none' ? `${winner.toUpperCase()} WINS!` : 'GAME ENDED';
+}
 
 socket.on('ghost:message', (data) => {
   appendGhostMessage(data);
@@ -404,10 +425,11 @@ function startTimer(seconds) {
 function renderVoteList() {
   voteList.innerHTML = '';
   gameState.players.forEach((player) => {
-    if (!player.alive) return;
+    if (!player.alive || player.id === gameState.playerId) return;
     const card = document.createElement('div');
     card.className = 'player-card alive';
     card.dataset.playerId = player.id;
+    card.dataset.playerName = player.name;
 
     const nameEl = document.createElement('span');
     nameEl.textContent = player.name;
@@ -418,10 +440,7 @@ function renderVoteList() {
     if (player.name === myVoteName) card.classList.add('selected');
 
     card.addEventListener('click', () => {
-      document.querySelectorAll('#vote-list .player-card').forEach((c) => c.classList.remove('selected'));
       socket.emit('vote:cast', { targetId: player.id });
-      myVoteName = player.name;
-      card.classList.add('selected');
     });
     voteList.appendChild(card);
   });
@@ -432,16 +451,15 @@ function renderTargetList() {
   targetList.innerHTML = '';
   gameState.players.forEach((player) => {
     if (!player.alive) return;
+    if (player.id === gameState.playerId && !(gameState.role && gameState.role.canTargetSelf)) return;
     const card = document.createElement('div');
     card.className = 'player-card alive';
     card.dataset.playerId = player.id;
+    card.dataset.playerName = player.name;
     card.textContent = player.name;
     if (player.name === myTargetName) card.classList.add('selected');
     card.addEventListener('click', () => {
-      document.querySelectorAll('#target-list .player-card').forEach((c) => c.classList.remove('selected'));
       socket.emit('night:action', { targetId: player.id });
-      myTargetName = player.name;
-      card.classList.add('selected');
     });
     targetList.appendChild(card);
   });
@@ -455,7 +473,7 @@ function showGameEnded(winner, reason, players = []) {
   timer.textContent = '';
   phaseTitle.textContent = 'Game over';
   gameEndedDiv.classList.remove('hidden');
-  document.getElementById('winner-title').textContent = `${winner.toUpperCase()} WINS!`;
+  document.getElementById('winner-title').textContent = endTitle(winner);
   document.getElementById('win-reason').textContent = reason;
 
   const resultsGrid = document.getElementById('results-grid');

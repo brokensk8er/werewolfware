@@ -147,6 +147,9 @@ async function connectToGame(user) {
     renderPlayers(data.players);
     renderPhase(data.phase, data.secondsRemaining);
     renderVotes(data.votes);
+    // The full log arrives with each state: replace, so a reconnect does not
+    // double it and a new game starts with a fresh log.
+    eventLog.innerHTML = '';
     data.log.forEach(appendLogEntry);
   });
 
