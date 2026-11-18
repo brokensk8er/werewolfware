@@ -48,7 +48,7 @@ export interface GameState {
   dayVotes: Map<string, string>; // playerId -> targetId
   nightActions: Map<string, { playerId: string; targetId: string }>;
   protectedPlayers: Set<string>; // playerIds protected by doctor
-  seerInvestigations: Map<string, { seerId: string; targetId: string; role: Role }>;
+  seerInvestigations: Map<string, { seerId: string; targetId: string; role: Role; team: PlayerTeam }>;
   chatMessages: ChatMessage[]; // town square chat
   adminLog: AdminLogEntry[];
 }
@@ -61,6 +61,8 @@ export interface Role {
   description: string;
   canVoteDuringDay: boolean;
   hasNightAction: boolean;
+  /** May choose themselves as a night target (the Doctor protecting themselves). */
+  canTargetSelf?: boolean;
   nightAction?(game: GameState, player: Player, targetId: string): void;
   onDeath?(game: GameState, player: Player): void;
   checkWinCondition?(game: GameState): boolean;
@@ -146,7 +148,9 @@ export interface ServerEvents {
     playerName: string;
     role: string;
   }) => void;
-  'seer:investigation': (data: { targetName: string; role: string }) => void;
+  // Decision 5 (2026-11-16): the Seer learns a team, not an exact role.
+  'seer:investigation': (data: { targetName: string; team: PlayerTeam }) => void;
+  'vote:recorded': (data: { targetId: string; targetName: string }) => void;
   'night:actionRecorded': (data: { targetId: string }) => void;
   'vote:updated': (data: {
     votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
@@ -159,8 +163,9 @@ export interface ServerEvents {
   'chat:message': (data: ChatMessage) => void;
   'ghost:message': (data: ChatMessage) => void;
   'game:ended': (data: {
-    winner: PlayerTeam;
+    winner: PlayerTeam | 'none';
     winReason: string;
+    endedByModerator?: boolean;
     players: Array<{ name: string; role: string; team: PlayerTeam; alive: boolean; deathCause: string }>;
   }) => void;
   error: (data: { message: string }) => void;

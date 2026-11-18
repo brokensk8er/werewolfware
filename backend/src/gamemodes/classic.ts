@@ -10,16 +10,14 @@ export const ClassicMode: GameMode = {
   name: 'Classic',
   description: 'Village vs Werewolves — Seer and Doctor included',
   minPlayers: 5,
-  maxPlayers: 20,
+  maxPlayers: 30,
   getRoles(playerCount: number): Role[] {
     const roles: Role[] = [];
 
     if (playerCount >= 5) {
-      let wolfCount: number;
-      if (playerCount <= 7) wolfCount = 1;
-      else if (playerCount <= 10) wolfCount = 2;
-      else if (playerCount <= 15) wolfCount = 3;
-      else wolfCount = 4;
+      // Decision 6 (2026-11-16): about one werewolf per six players, rounded,
+      // at least one. 5-8 players: 1, 9-14: 2, 15-20: 3, 21-26: 4, 27-30: 5.
+      const wolfCount = Math.max(1, Math.round(playerCount / 6));
 
       for (let i = 0; i < wolfCount; i++) roles.push(Werewolf);
       roles.push(Seer);
@@ -30,7 +28,12 @@ export const ClassicMode: GameMode = {
       }
     }
 
-    // Shuffle roles
-    return roles.sort(() => Math.random() - 0.5);
+    // Fisher-Yates shuffle: every arrangement equally likely. The old
+    // sort(() => Math.random() - 0.5) favoured some seats over others.
+    for (let i = roles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [roles[i], roles[j]] = [roles[j], roles[i]];
+    }
+    return roles;
   },
 };

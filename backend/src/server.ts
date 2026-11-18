@@ -254,19 +254,117 @@ function guardSocket(socket: any) {
     });
 }
 
-// Current votes to phones and moderators. Player ids change on reconnect, so the
-// tally is resent after a reconnect or a removal.
+// Votes are hidden from phones until voting closes (decision 4, 2026-11-16), so
+// only the moderator receives the running tally. Player ids change on reconnect,
+// so it is resent after a reconnect or a removal.
 function broadcastVotes(roomCode: string) {
+  broadcastAdminVoteUpdate(roomCode);
+}
+
+// Strips control characters and outer spaces from a name typed by a person.
+function cleanName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+}
+
+// Returns why a name cannot be used in this game, or null if it is fine.
+function nameProblem(roomCode: string, name: string, exceptId?: string): string | null {
   const game = gameManager.getGame(roomCode);
-  if (!game) return;
-  const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
+  if (!game) return 'No active game';
+  if (name.length < 1 || name.length > 20) return 'Please enter a name of 1 to 20 characters.';
+  const lower = name.toLowerCase();
+  const taken = Array.from(game.players.values()).some(
+    (p) => p.id !== exceptId && (p.name.toLowerCase() === lower || p.name.toLowerCase() === `mayor ${lower}`),
+  );
+  return taken ? 'That name is taken. Add an initial or a nickname.' : null;
+}
+
+// Phones may send chat at most once a second each.
+const lastChatAt = new Map<string, number>();
+function chatTooFast(socketId: string): boolean {
+  const now = Date.now();
+  if (now - (lastChatAt.get(socketId) ?? 0) < 1000) return true;
+  lastChatAt.set(socketId, now);
+  return false;
+}
+
+// One path for every day vote, whether a player or the moderator casts it.
+// Returns an error message, or null when the vote was recorded.
+function applyVote(roomCode: string, voterId: string, targetId: string, byModerator: boolean): string | null {
+  const problem = gameManager.castVote(roomCode, voterId, targetId);
+  if (problem) return problem;
+  const game = gameManager.getGame(roomCode)!;
+  const voter = game.players.get(voterId)!;
+  const target = game.players.get(targetId)!;
+
+  broadcastVotes(roomCode);
+
+  // Ambiguous town-wide note: says a vote happened, never who or for whom
+  io.to(roomCode).emit('chat:message', {
+    senderId: '__system__',
+    senderName: '📢 Town Square',
+    text: pick(VOTE_CAST_AMBIGUOUS),
+    timestamp: new Date(),
+  });
+
+  const entry = gameManager.pushAdminLog(roomCode, {
+    category: 'town',
+    senderName: voter.name,
+    text: `${byModerator ? '[Moderator] ' : ''}Voted for ${target.name}`,
+  });
+  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+
+  // The voter's own phone shows their choice, including one the moderator made for them
+  io.to(voterId).emit('vote:recorded', { targetId, targetName: target.name });
+  announcePrivate(
     voterId,
-    voterName: game.players.get(voterId)?.name || 'Unknown',
-    targetId,
-    targetName: game.players.get(targetId)?.name || 'Unknown',
+    `${byModerator ? 'The moderator recorded your vote' : 'You have voted'} for ${target.name}. ${pick(VOTE_CAST_PRIVATE)}`,
+    '🗳️ Your Vote',
+    'private',
+    roomCode,
+    `→ ${voter.name}`,
+  );
+  return null;
+}
+
+// One path for every night choice. Returns an error message, or null.
+function applyNightAction(roomCode: string, actorId: string, targetId: string, label = ''): string | null {
+  const problem = gameManager.recordNightAction(roomCode, actorId, targetId);
+  if (problem) return problem;
+  const game = gameManager.getGame(roomCode)!;
+  const actor = game.players.get(actorId)!;
+  const target = game.players.get(targetId)!;
+  io.to(actorId).emit('night:actionRecorded', { targetId });
+  const entry = gameManager.pushAdminLog(roomCode, {
+    category: actor.role.id === 'werewolf' ? 'werewolf' : 'seer',
+    senderName: actor.name,
+    text: `${label}${actor.role.name} ${actor.name} → ${target.name}`,
+  });
+  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  return null;
+}
+
+// Results table for the end screen. Safe even if roles were never dealt.
+function playerSummary(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game) return [];
+  return Array.from(game.players.values()).map((p) => ({
+    name: p.name,
+    role: p.role?.name ?? '—',
+    team: p.team,
+    alive: p.alive,
+    deathCause: p.alive ? 'Survived' : (p.deathCause ?? 'Eliminated'),
   }));
-  io.to(roomCode).emit('vote:updated', { votes });
-  emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+}
+
+// Announces a win. The moderator's log is kept so the evening can be recapped;
+// it is replaced when the next game is created.
+function finishGame(roomCode: string) {
+  const game = gameManager.getGame(roomCode);
+  if (!game || !game.winner) return;
+  io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason ?? '', players: playerSummary(roomCode) });
+  announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason ?? ''}`, 'system');
+  broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
 }
 
 // A removed player's vote and night action go with them, as do choices aimed at them.
@@ -328,7 +426,7 @@ io.on('connection', (socket) => {
   // only driver (decision D1); those handlers were removed on purpose.
 
   socket.on('lobby:join', (data) => {
-    const playerName = typeof data.playerName === 'string' ? data.playerName.trim() : '';
+    const playerName = cleanName(data.playerName);
     // Auto-resolve the single active game; ignore any client-supplied roomCode
     const roomCode = getActiveRoomCode();
     const game = roomCode ? gameManager.getGame(roomCode) : null;
@@ -341,13 +439,13 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'The game has already started. Ask the moderator.' });
       return;
     }
-    if (playerName.length < 1 || playerName.length > 20) {
-      socket.emit('error', { message: 'Please enter a name of 1 to 20 characters.' });
+    if (game.players.size >= game.gameMode.maxPlayers) {
+      socket.emit('error', { message: `The game is full (${game.gameMode.maxPlayers} players).` });
       return;
     }
-    const taken = Array.from(game.players.values()).some((p) => p.name.toLowerCase() === playerName.toLowerCase());
-    if (taken) {
-      socket.emit('error', { message: 'That name is taken. Add an initial or a nickname.' });
+    const badName = nameProblem(roomCode, playerName);
+    if (badName) {
+      socket.emit('error', { message: badName });
       return;
     }
     if (game.players.has(socket.id)) {
@@ -374,86 +472,15 @@ io.on('connection', (socket) => {
   socket.on('vote:cast', (data) => {
     const roomCode = getRoomCode(socket);
     if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game || game.phase !== 'day') {
-      socket.emit('error', { message: 'Not in day phase' });
-      return;
-    }
-
-    const voter = game.players.get(socket.id);
-    if (!voter) return;
-
-    gameManager.castVote(roomCode, socket.id, data.targetId);
-    const target = game.players.get(data.targetId);
-
-    const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
-      voterId,
-      voterName: game.players.get(voterId)?.name || 'Unknown',
-      targetId,
-      targetName: game.players.get(targetId)?.name || 'Unknown',
-    }));
-
-    io.to(roomCode).emit('vote:updated', { votes });
-    emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
-
-    // Ambiguous town-wide message (players only — not logged to admin)
-    io.to(roomCode).emit('chat:message', {
-      senderId: '__system__',
-      senderName: '📢 Town Square',
-      text: pick(VOTE_CAST_AMBIGUOUS),
-      timestamp: new Date(),
-    });
-
-    // Clear admin log entry
-    const voteEntry = gameManager.pushAdminLog(roomCode, {
-      category: 'town',
-      senderName: voter.name,
-      text: `Voted for ${target?.name ?? 'unknown'}`,
-    });
-    if (voteEntry) emitToAdmins(roomCode, 'admin:logEntry', voteEntry);
-
-    // Private confirmation to voter
-    announcePrivate(
-      socket.id,
-      `You have voted for ${target?.name ?? 'someone'}. ${pick(VOTE_CAST_PRIVATE)}`,
-      '🗳️ Your Vote',
-      'private',
-      roomCode,
-      `→ ${voter.name}`,
-    );
-
-    console.log(`${voter.name} voted for ${target?.name}`);
+    const problem = applyVote(roomCode, socket.id, data.targetId, false);
+    if (problem) socket.emit('error', { message: problem });
   });
 
   socket.on('night:action', (data) => {
     const roomCode = getRoomCode(socket);
     if (!roomCode) { socket.emit('error', { message: 'Not in a room' }); return; }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game || game.phase !== 'night') {
-      socket.emit('error', { message: 'Not in night phase' });
-      return;
-    }
-
-    const player = game.players.get(socket.id);
-    if (!player || !player.role.hasNightAction) {
-      socket.emit('error', { message: 'You do not have a night action' });
-      return;
-    }
-
-    gameManager.recordNightAction(roomCode, socket.id, data.targetId);
-    socket.emit('night:actionRecorded', { targetId: data.targetId });
-
-    const target = game.players.get(data.targetId);
-    const logText = `${player.role.name} ${player.name} targeted ${target?.name ?? data.targetId}`;
-    const entry = gameManager.pushAdminLog(roomCode, {
-      category: player.role.id === 'werewolf' ? 'werewolf' : 'seer',
-      senderName: player.name,
-      text: logText,
-    });
-    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-    console.log(logText);
+    const problem = applyNightAction(roomCode, socket.id, data.targetId);
+    if (problem) socket.emit('error', { message: problem });
   });
 
   socket.on('chat:send', (data) => {
@@ -465,24 +492,29 @@ io.on('connection', (socket) => {
 
     const sender = game.players.get(socket.id);
     if (!sender) return;
+    if (!sender.alive) { socket.emit('error', { message: 'The dead speak only in ghost chat.' }); return; }
+
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
+    if (!text) return;
+    if (text.length > 300) { socket.emit('error', { message: 'Messages can be up to 300 characters.' }); return; }
+    if (chatTooFast(socket.id)) { socket.emit('error', { message: 'Slow down: one message a second.' }); return; }
 
     const message = {
       senderId: socket.id,
       senderName: sender.name,
-      text: data.text,
+      text,
       timestamp: new Date(),
     };
 
-    gameManager.addChatMessage(roomCode, socket.id, sender.name, data.text);
+    gameManager.addChatMessage(roomCode, socket.id, sender.name, text);
     io.to(roomCode).emit('chat:message', message);
 
     const entry = gameManager.pushAdminLog(roomCode, {
       category: 'chat',
       senderName: sender.name,
-      text: data.text,
+      text,
     });
     if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-    console.log(`${sender.name}: ${data.text}`);
   });
 
   socket.on('ghost:send', (data) => {
@@ -493,8 +525,10 @@ io.on('connection', (socket) => {
     const player = game.players.get(socket.id);
     if (!player || player.alive) return; // only the dead may ghost-chat
 
-    const text = data.text?.trim();
+    const text = typeof data.text === 'string' ? data.text.trim() : '';
     if (!text) return;
+    if (text.length > 300) { socket.emit('error', { message: 'Messages can be up to 300 characters.' }); return; }
+    if (chatTooFast(socket.id)) { socket.emit('error', { message: 'Slow down: one message a second.' }); return; }
 
     const msg = { senderId: socket.id, senderName: player.name, text, timestamp: new Date() };
 
@@ -583,6 +617,7 @@ io.on('connection', (socket) => {
         broadcastAdminPlayerUpdate(roomCode);
       }
     }
+    lastChatAt.delete(socket.id);
     console.log(`Player disconnected: ${socket.id}`);
   });
 });
@@ -617,11 +652,13 @@ function resolveAndAdvance(roomCode: string): string | null {
     for (const [seerId, investigation] of game.seerInvestigations) {
       const targetName = game.players.get(investigation.targetId)?.name;
       if (targetName) {
-        io.to(seerId).emit('seer:investigation', { targetName, role: investigation.role.name });
+        // Decision 5 (2026-11-16): the Seer learns the team, not the exact role
+        const team = investigation.team;
+        io.to(seerId).emit('seer:investigation', { targetName, team });
         const seerPlayer = game.players.get(seerId);
         announcePrivate(
           seerId,
-          `${pick(SEER_WHISPERS)} ${targetName} is a ${investigation.role.name}.`,
+          `${pick(SEER_WHISPERS)} ${targetName} is on the ${team === 'werewolf' ? 'WEREWOLF' : 'village'} team.`,
           '🔮 The Spirits',
           'seer',
           roomCode,
@@ -632,7 +669,7 @@ function resolveAndAdvance(roomCode: string): string | null {
   }
 
   if (game.phase === 'day') {
-    const { eliminated, voteCount } = gameManager.resolveDay(roomCode);
+    const { eliminated, voteCount, tiedNames } = gameManager.resolveDay(roomCode);
     if (eliminated) {
       io.to(roomCode).emit('vote:result', {
         eliminated: eliminated.id,
@@ -649,29 +686,21 @@ function resolveAndAdvance(roomCode: string): string | null {
         `The village has spoken. ${eliminated.name} was ${pick(VOTE_DEATHS)} with ${voteCount} vote${voteCount !== 1 ? 's' : ''}. They were a ${eliminated.role.name}.`,
         'system',
       );
+    } else if (tiedNames.length > 1) {
+      // Decision D3: a tie at the top eliminates nobody
+      announce(roomCode, `The vote is tied between ${tiedNames.join(' and ')}, with ${voteCount} vote${voteCount !== 1 ? 's' : ''} each. No one is eliminated. The werewolves smirk.`, 'system');
     } else {
-      announce(roomCode, 'The vote was inconclusive. No one was eliminated. The werewolves smirk.', 'system');
+      announce(roomCode, 'No votes were cast. No one was eliminated. The werewolves smirk.', 'system');
     }
     broadcastAdminVoteUpdate(roomCode);
   }
 
   const nextPhase = gameManager.advancePhase(roomCode);
 
-  if (nextPhase === 'ended' && game.winner && game.winReason) {
-    const playerSummary = Array.from(game.players.values()).map((p) => ({
-      name: p.name,
-      role: p.role.name,
-      team: p.team,
-      alive: p.alive,
-      deathCause: p.alive ? 'Survived' : (p.deathCause ?? 'Eliminated'),
-    }));
-    io.to(roomCode).emit('game:ended', { winner: game.winner, winReason: game.winReason, players: playerSummary });
-    announce(roomCode, `⚔️ ${game.winner.toUpperCase()} WIN! ${game.winReason}`, 'system');
-    broadcastAdminPhaseUpdate(roomCode, 'ended', 0);
-    gameManager.clearAdminLog(roomCode);
-    emitToAdmins(roomCode, 'admin:clearLog', {});
+  if (nextPhase === 'ended') {
+    finishGame(roomCode);
   } else if (nextPhase === 'night' || nextPhase === 'day') {
-    const seconds = game.customPhaseDuration ?? 30;
+    const seconds = gameManager.phaseSeconds(game, nextPhase);
     gameManager.updateTimer(roomCode, seconds);
     announce(roomCode, pick(nextPhase === 'night' ? PHASE_NIGHT : PHASE_DAY), 'system');
     io.to(roomCode).emit('phase:changed', { phase: nextPhase, secondsRemaining: seconds });
@@ -763,6 +792,10 @@ adminNS.on('connection', (socket: any) => {
 
     const newRole = ROLE_REGISTRY[data.roleId];
     if (!newRole) { socket.emit('error', { message: `Unknown role: ${data.roleId}` }); return; }
+    const phase = gameManager.getGame(roomCode)?.phase;
+    // In the lobby a change was thrown away at Start and left the phone on a broken screen
+    if (phase === 'lobby') { socket.emit('error', { message: 'Roles are dealt when the game starts. Change Role works after Start.' }); return; }
+    if (phase === 'ended') { socket.emit('error', { message: 'The game is over.' }); return; }
 
     const player = gameManager.changePlayerRole(roomCode, data.playerId, newRole);
     if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
@@ -806,6 +839,8 @@ adminNS.on('connection', (socket: any) => {
       role: player.role.name,
     });
     announce(roomCode, `⚡ ${player.name} was removed from the game by the moderator.`, 'system');
+    // The removal can decide the game
+    if (gameManager.checkWinNow(roomCode)) finishGame(roomCode);
     broadcastAdminPlayerUpdate(roomCode);
   });
 
@@ -843,8 +878,9 @@ adminNS.on('connection', (socket: any) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
 
-    if (!gameManager.startGame(roomCode)) {
-      socket.emit('error', { message: `Need at least ${5} players to start` });
+    const startProblem = gameManager.startGame(roomCode);
+    if (startProblem) {
+      socket.emit('error', { message: startProblem });
       return;
     }
 
@@ -870,7 +906,7 @@ adminNS.on('connection', (socket: any) => {
 
     announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
     announce(roomCode, pick(PHASE_NIGHT), 'system');
-    const adminStartSeconds = game.customPhaseDuration ?? 30;
+    const adminStartSeconds = gameManager.phaseSeconds(game, 'night');
 
     io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: adminStartSeconds });
     broadcastAdminPlayerUpdate(roomCode);
@@ -882,9 +918,14 @@ adminNS.on('connection', (socket: any) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
 
-    io.to(roomCode).emit('game:ended', { winner: 'village' as any, winReason: 'Game ended by moderator.', players: [] });
+    // No side won: phones say the moderator ended it, and still show who was what
+    io.to(roomCode).emit('game:ended', {
+      winner: 'none',
+      winReason: 'The moderator ended the game.',
+      endedByModerator: true,
+      players: gameManager.getGame(roomCode)?.phase === 'lobby' ? [] : playerSummary(roomCode),
+    });
     announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
-    emitToAdmins(roomCode, 'admin:clearLog', {});
 
     const watchers = adminWatchers.get(roomCode);
     adminWatchers.delete(roomCode);
@@ -910,9 +951,16 @@ adminNS.on('connection', (socket: any) => {
     const game = gameManager.getGame(roomCode);
     if (!game) return;
     if (game.phase !== 'lobby') { socket.emit('error', { message: 'Can only add players in lobby' }); return; }
+    if (game.players.size >= game.gameMode.maxPlayers) {
+      socket.emit('error', { message: `The game is full (${game.gameMode.maxPlayers} players).` });
+      return;
+    }
+    const name = cleanName(data.playerName);
+    const badName = nameProblem(roomCode, name);
+    if (badName) { socket.emit('error', { message: badName }); return; }
 
     const botId = `bot_${Math.random().toString(36).slice(2, 10)}`;
-    const player = gameManager.addPlayer(roomCode, botId, data.playerName.trim());
+    const player = gameManager.addPlayer(roomCode, botId, name);
     if (!player) { socket.emit('error', { message: 'Could not add player' }); return; }
 
     io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
@@ -966,7 +1014,10 @@ adminNS.on('connection', (socket: any) => {
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
 
     const oldName = gameManager.getGame(roomCode)?.players.get(data.playerId)?.name;
-    const renamed = gameManager.renamePlayer(roomCode, data.playerId, data.newName.trim());
+    const newName = cleanName(data.newName);
+    const badName = nameProblem(roomCode, newName, data.playerId);
+    if (badName) { socket.emit('error', { message: badName }); return; }
+    const renamed = gameManager.renamePlayer(roomCode, data.playerId, newName);
     if (!renamed) { socket.emit('error', { message: 'Player not found' }); return; }
 
     const entry = gameManager.pushAdminLog(roomCode, {
@@ -981,42 +1032,15 @@ adminNS.on('connection', (socket: any) => {
   socket.on('admin:castVote', (data: { voterId: string; targetId: string }) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game || game.phase !== 'day') { socket.emit('error', { message: 'Not in day phase' }); return; }
-
-    gameManager.castVote(roomCode, data.voterId, data.targetId);
-
-    const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
-      voterId,
-      voterName: game.players.get(voterId)?.name || 'Unknown',
-      targetId,
-      targetName: game.players.get(targetId)?.name || 'Unknown',
-    }));
-    io.to(roomCode).emit('vote:updated', { votes });
-    emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+    const problem = applyVote(roomCode, data.voterId, data.targetId, true);
+    if (problem) socket.emit('error', { message: problem });
   });
 
   socket.on('admin:submitNightAction', (data: { actorId: string; targetId: string }) => {
     const roomCode: string | undefined = socket.data.roomCode;
     if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
-
-    const game = gameManager.getGame(roomCode);
-    if (!game || game.phase !== 'night') { socket.emit('error', { message: 'Not in night phase' }); return; }
-
-    const actor = game.players.get(data.actorId);
-    if (!actor || !actor.role?.hasNightAction) { socket.emit('error', { message: 'Player has no night action' }); return; }
-
-    gameManager.recordNightAction(roomCode, data.actorId, data.targetId);
-
-    const target = game.players.get(data.targetId);
-    const logText = `${actor.role.name} ${actor.name} targeted ${target?.name ?? data.targetId}`;
-    const entry = gameManager.pushAdminLog(roomCode, {
-      category: actor.role.id === 'werewolf' ? 'werewolf' : 'seer',
-      senderName: actor.name,
-      text: logText,
-    });
-    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+    const problem = applyNightAction(roomCode, data.actorId, data.targetId, '[Moderator] ');
+    if (problem) socket.emit('error', { message: problem });
   });
 
   socket.on('admin:randomizeActions', () => {
@@ -1032,18 +1056,13 @@ adminNS.on('connection', (socket: any) => {
       const actors = alive.filter((p) => p.role?.hasNightAction);
       let actorCount = 0;
       for (const actor of actors) {
-        // Doctor may protect themselves; Werewolf must not (self-kill) and Seer gets no value from it
-        const eligible = actor.role.id === 'doctor' ? alive : alive.filter((p) => p.id !== actor.id);
+        // Same rules as a real choice: self only if the role allows, no wolf on wolf
+        const eligible = alive.filter((p) =>
+          (p.id !== actor.id || actor.role.canTargetSelf) &&
+          !(actor.team === 'werewolf' && p.team === 'werewolf'));
         if (eligible.length === 0) continue;
         const target = eligible[Math.floor(Math.random() * eligible.length)];
-        gameManager.recordNightAction(roomCode, actor.id, target.id);
-        const entry = gameManager.pushAdminLog(roomCode, {
-          category: actor.role.id === 'werewolf' ? 'werewolf' : 'seer',
-          senderName: actor.name,
-          text: `[Auto] ${actor.role.name} ${actor.name} → ${target.name}`,
-        });
-        if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-        actorCount++;
+        if (!applyNightAction(roomCode, actor.id, target.id, '[Auto] ')) actorCount++;
       }
       const summary = gameManager.pushAdminLog(roomCode, {
         category: 'system',
@@ -1058,17 +1077,9 @@ adminNS.on('connection', (socket: any) => {
         const eligible = alive.filter((p) => p.id !== voter.id);
         if (eligible.length === 0) continue;
         const target = eligible[Math.floor(Math.random() * eligible.length)];
-        gameManager.castVote(roomCode, voter.id, target.id);
-        voteCount++;
+        if (!gameManager.castVote(roomCode, voter.id, target.id)) voteCount++;
       }
-      const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
-        voterId,
-        voterName: game.players.get(voterId)?.name || 'Unknown',
-        targetId,
-        targetName: game.players.get(targetId)?.name || 'Unknown',
-      }));
-      io.to(roomCode).emit('vote:updated', { votes });
-      emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
+      broadcastVotes(roomCode);
       const summary = gameManager.pushAdminLog(roomCode, {
         category: 'system',
         senderName: '🎲 Admin',
@@ -1084,6 +1095,12 @@ adminNS.on('connection', (socket: any) => {
 
     const game = gameManager.getGame(roomCode);
     if (!game) return;
+    const seconds = Number(data.seconds);
+    if (!Number.isFinite(seconds) || seconds < 5 || seconds > 3600) {
+      socket.emit('error', { message: 'Set the timer between 5 seconds and 60 minutes.' });
+      return;
+    }
+    data.seconds = Math.round(seconds);
 
     gameManager.updateTimer(roomCode, data.seconds);
     io.to(roomCode).emit('phase:changed', { phase: game.phase, secondsRemaining: data.seconds });

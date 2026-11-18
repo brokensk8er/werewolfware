@@ -7,4 +7,5 @@ export const Doctor: Role = {
   description: 'A skilled doctor. Each night, you can save someone from death.',
   canVoteDuringDay: true,
   hasNightAction: true,
+  canTargetSelf: true,
 };

@@ -4,7 +4,7 @@ export const Seer: Role = {
   id: 'seer',
   name: 'Seer',
   team: 'village',
-  description: 'A mystical seer. Each night, you learn the true role of another player.',
+  description: 'A mystical seer. Each night, you learn whether another player is a werewolf.',
   canVoteDuringDay: true,
   hasNightAction: true,
 };
