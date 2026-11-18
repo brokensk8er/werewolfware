@@ -1,8 +1,14 @@
 # Phone check
 
-Plays a real 30-player game at phone size and checks that the app survives the night:
-no host buttons on player phones, phones that drop and reconnect, the moderator list
-scrolling on a phone, bad events, a mid-game removal, the end screen, and a server restart.
+Two checks, run in order by `npm test`:
+
+- **`rules.cjs`** (about 20 seconds) drives games over plain socket connections and checks
+  every game rule: one werewolf kill per night, vote ties, the Mayor's double vote, the
+  Seer learning a team, hidden votes, who may vote or act, chat limits, names, the
+  30-player cap and the role mix, moderator eliminations ending the game, End Game.
+- **`verify.cjs`** (about two minutes) plays a real 30-player game at phone size: no host
+  buttons on player phones, phones that drop and reconnect, the moderator list scrolling
+  on a phone, bad events, a mid-game removal, the end screen, and a server restart.
 
 It runs against a throwaway local copy in `.work/`. It never touches the live server,
 and nothing here is part of a deploy.
@@ -16,8 +22,14 @@ npx playwright install chromium   # first time only
 npm test
 ```
 
-It takes about two minutes and ends with `N of N checks passed`. Screenshots of the
-key screens land in `.work/shots/`.
+Each part ends with `N of N checks passed`. Screenshots of the key screens land in
+`.work/shots/`.
+
+## On GitHub
+
+`.github/workflows/check.yml` runs the type check and `npm test` on every pull request and
+branch push. Both deploy workflows run it first and deploy only if it passes. It retries
+once, so a slow runner does not block a deploy; a real bug fails both runs.
 
 ## When to run it
 

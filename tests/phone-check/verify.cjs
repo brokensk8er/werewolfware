@@ -75,7 +75,8 @@ async function main() {
   for (const ev of ['admin:auth', 'admin:changeRole', 'admin:kick', 'admin:castVote', 'admin:addPlayer', 'admin:setTimer', 'admin:renamePlayer']) rawAdmin.emit(ev);
   await sleep(900); rawAdmin.close();
   check('4b events with no payload: server still running', st.exit === null, st.exit);
-  check('4b duplicate, over-long and non-text names refused', admin.players.length === 30 && rawErr.some((e) => /taken/.test(e)) && rawErr.filter((e) => /1 to 20/.test(e)).length >= 2, rawErr);
+  // The lobby is full by now, so every join is refused as full. Name rules are in rules.cjs.
+  check('4b bad joins to a full game are refused and nobody is added', admin.players.length === 30 && rawErr.filter((e) => /full/.test(e)).length === 4, rawErr); // three bad names plus one join with no payload
 
   // Fix 3: moderator page on phones and a portrait tablet
   const sizes = { '375x667': { width: 375, height: 667 }, '390x844': { width: 390, height: 844 }, '768x1024': { width: 768, height: 1024 } };
@@ -135,7 +136,7 @@ async function main() {
   // bonus: timer change keeps the highlight and counts
   admin.emit('admin:setTimer', { seconds: 120 }); await sleep(400);
   const afterTimer = await casey.evaluate(() => ({ selected: [...document.querySelectorAll('#vote-list .player-card.selected')].map((c) => c.firstChild.textContent), badges: [...document.querySelectorAll('.vote-count-badge')].filter((b) => b.textContent).length }));
-  check('7 timer change keeps the vote highlight and counts', afterTimer.selected.length === 1 && afterTimer.selected[0] === t1 && afterTimer.badges === 1, afterTimer);
+  check('7 timer change keeps the vote highlight (vote counts stay hidden)', afterTimer.selected.length === 1 && afterTimer.selected[0] === t1 && afterTimer.badges === 0, afterTimer);
 
   // Fix 2: connection drops and repairs itself, no refresh
   const briOld = idOf('Bri');
@@ -150,11 +151,17 @@ async function main() {
   // another phone votes FOR the reconnected player: its card must carry the new id
   await voteFor(alex, nameOnPhone('Bri'));
   check('2 other phones can still vote for the reconnected player', admin.votes.some((v) => v.targetId === briNew && v.targetName !== 'Unknown'), admin.votes.filter((v) => /Bri/.test(v.targetName)));
-  check('2 Casey keeps highlight and counts through someone else reconnecting', await casey.evaluate((t) => { const sel = [...document.querySelectorAll('#vote-list .player-card.selected')].map((c) => c.firstChild.textContent); return sel.length === 1 && sel[0] === t && [...document.querySelectorAll('.vote-count-badge')].filter((b) => b.textContent).length === 3; }, t1));
+  check('2 Casey keeps her highlight through someone else reconnecting; no counts shown', await casey.evaluate((t) => { const sel = [...document.querySelectorAll('#vote-list .player-card.selected')].map((c) => c.firstChild.textContent); return sel.length === 1 && sel[0] === t && [...document.querySelectorAll('.vote-count-badge')].filter((b) => b.textContent).length === 0; }, t1));
+  check('4 phones receive no one else\'s votes', await casey.evaluate(() => typeof lastVotes !== 'undefined' && lastVotes.length === 0));
+  check('10 a player is not in their own vote list', await casey.evaluate(() => ![...document.querySelectorAll('#vote-list .player-card')].some((c) => c.dataset.playerId === gameState.playerId)));
   // drop detection while offline
-  const actxB = bri.context(); await bri.evaluate(() => { socket.io.opts.reconnection = false; socket.io.engine.close(); }); await sleep(700);
-  check('2 a phone that stays offline shows as disconnected to the moderator', admin.players.find((p) => /Bri/.test(p.name))?.connected === false);
-  check('2 other phones mark that player as disconnected', await casey.evaluate(() => /Bri.*\(disconnected\)/.test(document.getElementById('game-players-ul').innerText)));
+  await bri.evaluate(() => { socket.io.opts.reconnection = false; socket.io.engine.close(); });
+  // Wait for the server to notice (up to 5 seconds) rather than a fixed pause, so a slow CI machine does not fail it
+  const briOffline = () => admin.players.find((p) => /Bri/.test(p.name))?.connected === false;
+  for (let i = 0; i < 50 && !briOffline(); i++) await sleep(100);
+  check('2 a phone that stays offline shows as disconnected to the moderator', briOffline());
+  const caseySeesIt = await casey.waitForFunction(() => /Bri.*\(disconnected\)/.test(document.getElementById('game-players-ul').innerText), null, { timeout: 5000 }).then(() => true, () => false);
+  check('2 other phones mark that player as disconnected', caseySeesIt);
   await bri.reload(); await bri.waitForSelector('#game-screen:not(.hidden)', { timeout: 8000 }); await sleep(600);
   check('2 a refresh returns to the game with the right name and no join form', await bri.evaluate(() => /Bri/.test(document.getElementById('nameplate-name').textContent) && document.getElementById('lobby-screen').classList.contains('hidden') && gameState.phase === 'day'), await bri.evaluate(() => document.getElementById('nameplate-name').textContent));
 
@@ -163,7 +170,8 @@ async function main() {
   const aliveBefore = alive().length;
   admin.emit('admin:kick', { playerId: kickedId }); await sleep(600);
   const afterKick = await casey.evaluate(() => ({ cards: document.querySelectorAll('#vote-list .player-card').length, flagged: gameState.players.filter((p) => p.alive === true).length, total: gameState.players.length, selected: document.querySelectorAll('#vote-list .player-card.selected').length }));
-  check('5 after a mid-game removal the vote list is still full', afterKick.cards === aliveBefore - 1 && afterKick.flagged === aliveBefore - 1 && afterKick.selected === 1, { ...afterKick, expected: aliveBefore - 1 });
+  // The vote list shows every living player except the viewer
+  check('5 after a mid-game removal the vote list is still full', afterKick.cards === aliveBefore - 2 && afterKick.flagged === aliveBefore - 1 && afterKick.selected === 1, { ...afterKick, expected: aliveBefore - 2 });
   await casey.screenshot({ path: path.join(SHOTS, 'player-day-after-kick.png') });
 
   // ghost screen after the removal

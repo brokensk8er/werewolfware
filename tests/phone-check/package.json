@@ -1,9 +1,9 @@
 {
   "name": "werewolfware-phone-check",
   "private": true,
-  "description": "Plays a 30-player game at phone size against a local copy of the app and checks that it survives the night. Kept apart from backend/ so it never affects a deploy.",
+  "description": "Checks the game rules over plain sockets, then plays a 30-player game at phone size, against a local copy of the app. Kept apart from backend/ so it never affects a deploy.",
   "scripts": {
-    "test": "node prepare.cjs && node verify.cjs"
+    "test": "node prepare.cjs && node rules.cjs && node verify.cjs"
   },
   "devDependencies": {
     "express": "^4.18.2",
