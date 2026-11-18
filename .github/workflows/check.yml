@@ -45,8 +45,10 @@ jobs:
         # One retry: a real bug fails both runs; a slow moment on the runner does not block a deploy
         run: npm test || (echo "::warning::First run failed; retrying once" && npm test)
 
+      # Not on main: there this runs inside the deploys, and a second file attached to
+      # the run stops the Pages deploy from finding its own upload.
       - name: Keep the screenshots
-        if: always()
+        if: always() && github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: phone-check-screens
