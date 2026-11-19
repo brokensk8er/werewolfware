@@ -1,17 +1,43 @@
-// Sending things to phones and to moderator panels.
+// Sending things to phones and to moderator panels. Game state reaches them as
+// views (view.ts); this file handles messages, the log and connections.
 
 import { LogCategory } from './types.js';
 import { adminNS, adminWatchers, gameManager, io } from './state.js';
+import { buildAdminView } from './view.js';
 
-// Helper to get room code from socket. The room is recorded on the socket when a
-// player joins or rejoins, because socket.rooms is already empty by the time the
-// 'disconnect' event fires.
+// The room a socket belongs to. Recorded on the socket when a player joins or
+// rejoins, because socket.rooms is already empty by the time 'disconnect' fires.
 export function getRoomCode(socket: any): string | null {
-  if (socket.data?.roomCode) return socket.data.roomCode as string;
-  for (const room of socket.rooms) {
-    if (room !== socket.id) return room as string;
+  return (socket.data?.roomCode as string | undefined) ?? null;
+}
+
+// Puts a phone's connection into the game room and into a room named after the
+// player's permanent id, so messages to that player reach every tab they have open.
+export function attachPlayerSocket(socket: any, roomCode: string, playerId: string) {
+  socket.join(roomCode);
+  socket.join(playerId);
+  socket.data.roomCode = roomCode;
+  socket.data.playerId = playerId;
+}
+
+// True if the player still has another connection open (a second tab, or a new
+// connection that arrived before the old one timed out).
+export function playerStillConnected(playerId: string): boolean {
+  return (io.sockets.adapter.rooms.get(playerId)?.size ?? 0) > 0;
+}
+
+// Detaches every connection a removed player has and tells them.
+export function detachPlayer(roomCode: string, playerId: string, message: string) {
+  const ids = io.sockets.adapter.rooms.get(playerId);
+  for (const socketId of ids ? [...ids] : []) {
+    const s = io.sockets.sockets.get(socketId);
+    if (!s) continue;
+    s.emit('player:removed', { message });
+    s.leave(roomCode);
+    s.leave(playerId);
+    s.data.roomCode = undefined;
+    s.data.playerId = undefined;
   }
-  return null;
 }
 
 // Emit to all admins watching a room
@@ -23,49 +49,6 @@ export function emitToAdmins(roomCode: string, event: string, data: any) {
   }
 }
 
-export function broadcastAdminPlayerUpdate(roomCode: string) {
-  const game = gameManager.getGame(roomCode);
-  if (!game) return;
-  const players = Array.from(game.players.values()).map((p) => ({
-    id: p.id,
-    name: p.name,
-    role: p.role,
-    team: p.team,
-    alive: p.alive,
-    connected: p.connected,
-  }));
-  emitToAdmins(roomCode, 'admin:playerUpdate', { players });
-}
-
-export function broadcastAdminPhaseUpdate(roomCode: string, phase: string, secondsRemaining: number) {
-  emitToAdmins(roomCode, 'admin:phaseUpdate', { phase, secondsRemaining });
-}
-
-export function broadcastAdminVoteUpdate(roomCode: string) {
-  const game = gameManager.getGame(roomCode);
-  if (!game) return;
-  const votes = Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
-    voterId,
-    voterName: game.players.get(voterId)?.name || 'Unknown',
-    targetId,
-    targetName: game.players.get(targetId)?.name || 'Unknown',
-  }));
-  emitToAdmins(roomCode, 'admin:voteUpdate', { votes });
-}
-
-// Player list as phones see it. Always carries the alive and connected flags, so a
-// list sent mid-game (after a removal) cannot make every player look dead.
-export function publicPlayers(roomCode: string) {
-  const game = gameManager.getGame(roomCode);
-  if (!game) return [];
-  return Array.from(game.players.values()).map((p) => ({
-    id: p.id,
-    name: p.name,
-    alive: p.alive,
-    connected: p.connected,
-  }));
-}
-
 // Moderator-only note. Connection changes go here, not into the room chat:
 // with 30 phones sleeping and waking they would bury everything else.
 export function noteForAdmins(roomCode: string, text: string) {
@@ -73,14 +56,14 @@ export function noteForAdmins(roomCode: string, text: string) {
   if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
 }
 
-// Votes are hidden from phones until voting closes (decision 4, 2026-11-16), so
-// only the moderator receives the running tally. Player ids change on reconnect,
-// so it is resent after a reconnect or a removal.
-export function broadcastVotes(roomCode: string) {
-  broadcastAdminVoteUpdate(roomCode);
+// Adds a line to the moderator log.
+export function logForAdmins(roomCode: string, category: LogCategory, senderName: string, text: string, meta?: string) {
+  const entry = gameManager.pushAdminLog(roomCode, { category, senderName, text, meta });
+  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
 }
 
-// Announce to room + log to admin
+// Announce to room + log to admin. Kept in the chat history, so a phone that
+// refreshes still sees what happened.
 export function announce(
   roomCode: string,
   text: string,
@@ -93,11 +76,12 @@ export function announce(
     text,
     timestamp: new Date(),
   });
-  const entry = gameManager.pushAdminLog(roomCode, { category, senderName, text });
-  if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
+  gameManager.addChatMessage(roomCode, '__system__', senderName, text);
+  logForAdmins(roomCode, category, senderName, text);
 }
 
-// Private message to one player + log to admin (with meta)
+// Private message to one player + log to admin (with meta). Not kept: anything a
+// player needs to keep belongs in their notes (see PlayerView).
 export function announcePrivate(
   targetId: string,
   text: string,
@@ -112,10 +96,7 @@ export function announcePrivate(
     text,
     timestamp: new Date(),
   });
-  if (roomCode) {
-    const entry = gameManager.pushAdminLog(roomCode, { category, senderName, text, meta });
-    if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-  }
+  if (roomCode) logForAdmins(roomCode, category, senderName, text, meta);
 }
 
 // ─── Admin helpers ────────────────────────────────────────────────────────────
@@ -132,9 +113,11 @@ export function attachAdminToRoom(socket: any, uid: string, roomCode: string) {
 
   socket.emit('admin:authed', { uid, roomCode });
 
-  const fullSnapshot = gameManager.getFullSnapshot(roomCode);
-  if (fullSnapshot) {
-    socket.emit('admin:state', fullSnapshot);
+  // The full log once; after this it streams entry by entry
+  const game = gameManager.getGame(roomCode);
+  if (game) {
+    socket.emit('admin:state', { log: game.adminLog });
+    socket.emit('admin:view', buildAdminView(game));
   }
 
   console.log(`[Admin] uid=${uid} watching room ${roomCode}`);

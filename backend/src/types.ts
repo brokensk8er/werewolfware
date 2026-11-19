@@ -15,6 +15,7 @@ export type GamePhase = 'lobby' | 'night' | 'day' | 'ended';
 export type PlayerTeam = 'village' | 'werewolf' | 'solo';
 
 export interface Player {
+  /** Fixed for the whole game. A phone's connections join a socket room with this name. */
   id: string;
   name: string;
   role: Role;
@@ -23,6 +24,72 @@ export interface Player {
   connected: boolean;
   rejoinToken: string;
   deathCause?: string;
+  /** Private results kept for the whole game, e.g. the Seer's findings. */
+  notes: PlayerNote[];
+}
+
+export interface PlayerNote {
+  at: string; // e.g. "Night 2"
+  text: string;
+}
+
+/** What a phone may know. Sent after every change; the phone redraws from it alone. */
+export interface PlayerView {
+  roomCode: string;
+  phase: GamePhase;
+  /** Night number at night, day number by day. */
+  round: number;
+  secondsRemaining: number;
+  you: {
+    id: string;
+    name: string;
+    alive: boolean;
+    deathCause?: string;
+    role: PublicRole | null;
+    /** Fellow werewolves' names, for werewolves only (decision D6). */
+    pack: string[];
+    voteId: string | null;
+    nightTargetId: string | null;
+    notes: PlayerNote[];
+  };
+  players: Array<{ id: string; name: string; alive: boolean; connected: boolean }>;
+  ended: EndResult | null;
+}
+
+export interface PublicRole {
+  id: string;
+  name: string;
+  team: PlayerTeam;
+  description: string;
+  hasNightAction: boolean;
+  canTargetSelf: boolean;
+  canVoteDuringDay: boolean;
+}
+
+export interface EndResult {
+  winner: PlayerTeam | 'none';
+  winReason: string;
+  endedByModerator: boolean;
+  players: Array<{ name: string; role: string; team: PlayerTeam; alive: boolean; deathCause: string }>;
+}
+
+/** What the moderator panel shows (without the log, which streams separately). */
+export interface AdminView {
+  roomCode: string;
+  phase: GamePhase;
+  round: number;
+  secondsRemaining: number;
+  players: Array<{
+    id: string;
+    name: string;
+    role: PublicRole | null;
+    team: PlayerTeam;
+    alive: boolean;
+    connected: boolean;
+    /** Has made this phase's choice (a night action at night, a vote by day). */
+    acted: boolean;
+  }>;
+  votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
 }
 
 export interface ChatMessage {
@@ -91,22 +158,11 @@ export interface AdminClientEvents {
 // Admin socket events (server -> client, /admin namespace)
 export interface AdminServerEvents {
   'admin:authed': (data: { uid: string; roomCode: string }) => void;
-  'admin:state': (data: {
-    roomCode: string;
-    phase: string;
-    secondsRemaining: number;
-    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean; connected: boolean }>;
-    log: AdminLogEntry[];
-    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
-  }) => void;
+  /** The full log, once, when a moderator starts watching. */
+  'admin:state': (data: { log: AdminLogEntry[] }) => void;
   'admin:logEntry': (data: AdminLogEntry) => void;
-  'admin:playerUpdate': (data: {
-    players: Array<{ id: string; name: string; role: Role; team: string; alive: boolean; connected: boolean }>;
-  }) => void;
-  'admin:phaseUpdate': (data: { phase: string; secondsRemaining: number }) => void;
-  'admin:voteUpdate': (data: {
-    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
-  }) => void;
+  /** Sent after every change, like the phones' game:view. */
+  'admin:view': (data: AdminView) => void;
   error: (data: { message: string }) => void;
 }
 
@@ -122,51 +178,14 @@ export interface ClientEvents {
 }
 
 // Socket.io events (server -> client)
+// State reaches phones only through game:view. The other events are messages
+// (chat, errors) or the one-time hand-over of the rejoin token.
 export interface ServerEvents {
-  'lobby:joined': (data: { roomCode: string; playerId: string; token: string; playerName: string }) => void;
-  // Sent in the lobby and mid-game (after a removal or reconnect), so it always carries the flags.
-  'lobby:updated': (data: { players: Array<{ id: string; name: string; alive: boolean; connected: boolean }> }) => void;
-  'player:removed': (data: { message: string }) => void;
-  'game:reconnected': (data: {
-    playerId: string;
-    playerName: string;
-    role: Role;
-    players: Array<{ id: string; name: string; alive: boolean; connected: boolean }>;
-    phase: GamePhase;
-    secondsRemaining: number;
-    recentMessages: ChatMessage[];
-  }) => void;
-  'player:connectionChanged': (data: { playerId: string; playerName: string; connected: boolean }) => void;
-  'game:started': (data: {
-    playerId: string;
-    role: Role;
-    players: Array<{ id: string; name: string }>;
-  }) => void;
-  'phase:changed': (data: { phase: GamePhase; secondsRemaining: number }) => void;
-  'player:eliminated': (data: {
-    playerId: string;
-    playerName: string;
-    role: string;
-  }) => void;
-  // Decision 5 (2026-11-16): the Seer learns a team, not an exact role.
-  'seer:investigation': (data: { targetName: string; team: PlayerTeam }) => void;
-  'vote:recorded': (data: { targetId: string; targetName: string }) => void;
-  'night:actionRecorded': (data: { targetId: string }) => void;
-  'vote:updated': (data: {
-    votes: Array<{ voterId: string; voterName: string; targetId: string; targetName: string }>;
-  }) => void;
-  'vote:result': (data: {
-    eliminated: string;
-    eliminatedName: string;
-    voteCount: number;
-  }) => void;
+  session: (data: { playerId: string; token: string }) => void;
+  'game:view': (data: PlayerView) => void;
+  'chat:history': (data: { messages: ChatMessage[] }) => void;
   'chat:message': (data: ChatMessage) => void;
   'ghost:message': (data: ChatMessage) => void;
-  'game:ended': (data: {
-    winner: PlayerTeam | 'none';
-    winReason: string;
-    endedByModerator?: boolean;
-    players: Array<{ name: string; role: string; team: PlayerTeam; alive: boolean; deathCause: string }>;
-  }) => void;
+  'player:removed': (data: { message: string }) => void;
   error: (data: { message: string }) => void;
 }

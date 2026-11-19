@@ -1,12 +1,15 @@
 // Socket handlers for the moderator panel (the /admin namespace).
+// Handlers change the game; guardSocket then sends every phone and moderator a
+// fresh view, so nothing here has to tell anyone what changed.
 
 import { ClassicMode } from '../gamemodes/classic.js';
-import { applyNightAction, applyVote, finishGame, forgetPlayerChoices, playerSummary, resolveAndAdvance } from '../actions.js';
+import { applyNightAction, applyVote, finishGame, forgetPlayerChoices, resolveAndAdvance } from '../actions.js';
 import { verifyAdminToken } from '../adminAuth.js';
 import { PHASE_NIGHT, pick } from '../flavor.js';
 import { cleanName, dropRejoinTokens, guardSocket, nameProblem } from '../helpers.js';
-import { announce, announcePrivate, attachAdminToRoom, broadcastAdminPhaseUpdate, broadcastAdminPlayerUpdate, broadcastVotes, emitToAdmins, getActiveRoomCode, publicPlayers } from '../messaging.js';
-import { ROLE_REGISTRY, adminNS, adminWatchers, gameManager, io } from '../state.js';
+import { announce, announcePrivate, attachAdminToRoom, detachPlayer, getActiveRoomCode, logForAdmins } from '../messaging.js';
+import { ROLE_REGISTRY, adminNS, adminWatchers, gameManager } from '../state.js';
+import { playerSummary, pushViews } from '../view.js';
 
 export function registerAdminHandlers() {
   // ─── Admin namespace ──────────────────────────────────────────────────────────
@@ -75,14 +78,7 @@ export function registerAdminHandlers() {
       const player = gameManager.changePlayerRole(roomCode, data.playerId, newRole);
       if (!player) { socket.emit('error', { message: 'Player not found' }); return; }
 
-      // Notify the player of their new role
-      io.to(data.playerId).emit('game:started', {
-        playerId: data.playerId,
-        role: player.role,
-        players: Array.from(gameManager.getGame(roomCode)!.players.values()).map((p) => ({
-          id: p.id, name: p.name, alive: p.alive,
-        })),
-      });
+      // The phone redraws from its next view (sent after this handler); this is the narration
       announcePrivate(
         data.playerId,
         `Your role has been changed to ${player.role.name}. ${player.role.description}`,
@@ -92,13 +88,7 @@ export function registerAdminHandlers() {
         `→ ${player.name}`,
       );
 
-      const entry = gameManager.pushAdminLog(roomCode, {
-        category: 'system',
-        senderName: '🎭 Admin',
-        text: `Role of ${player.name} changed to ${player.role.name}`,
-      });
-      if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-      broadcastAdminPlayerUpdate(roomCode);
+      logForAdmins(roomCode, 'system', '🎭 Admin', `Role of ${player.name} changed to ${player.role.name}`);
     });
 
     socket.on('admin:eliminate', (data: { playerId: string }) => {
@@ -108,15 +98,9 @@ export function registerAdminHandlers() {
       const player = gameManager.forceEliminate(roomCode, data.playerId);
       if (!player) { socket.emit('error', { message: 'Player not found or already eliminated' }); return; }
 
-      io.to(roomCode).emit('player:eliminated', {
-        playerId: player.id,
-        playerName: player.name,
-        role: player.role.name,
-      });
       announce(roomCode, `⚡ ${player.name} was removed from the game by the moderator.`, 'system');
       // The removal can decide the game
       if (gameManager.checkWinNow(roomCode)) finishGame(roomCode);
-      broadcastAdminPlayerUpdate(roomCode);
     });
 
     socket.on('admin:kick', (data: { playerId: string }) => {
@@ -134,19 +118,10 @@ export function registerAdminHandlers() {
       dropRejoinTokens(roomCode, data.playerId);
       forgetPlayerChoices(roomCode, data.playerId);
 
-      // Detach their socket from the room
-      const playerSocket = io.sockets.sockets.get(data.playerId);
-      if (playerSocket) {
-        playerSocket.leave(roomCode);
-        playerSocket.data.roomCode = undefined;
-        playerSocket.emit('player:removed', { message: 'You have been removed from the game by the moderator.' });
-      }
-
-      // Notify room
-      io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
-      if (game.phase === 'day') broadcastVotes(roomCode);
+      detachPlayer(roomCode, data.playerId, 'You have been removed from the game by the moderator.');
       announce(roomCode, `${player.name} was removed from the game.`, 'system');
-      broadcastAdminPlayerUpdate(roomCode);
+      // The removal can decide the game
+      if (gameManager.checkWinNow(roomCode)) finishGame(roomCode);
     });
 
     socket.on('admin:startGame', () => {
@@ -163,11 +138,6 @@ export function registerAdminHandlers() {
 
       for (const [playerId, player] of game.players) {
         if (!playerId.startsWith('bot_')) {
-          io.to(playerId).emit('game:started', {
-            playerId,
-            role: player.role,
-            players: Array.from(game.players.values()).map((p) => ({ id: p.id, name: p.name, alive: p.alive })),
-          });
           announcePrivate(
             playerId,
             `You are the ${player.role.name}. ${player.role.description}`,
@@ -181,11 +151,6 @@ export function registerAdminHandlers() {
 
       announce(roomCode, `The game begins with ${game.players.size} souls. May the innocent survive.`, 'system');
       announce(roomCode, pick(PHASE_NIGHT), 'system');
-      const adminStartSeconds = gameManager.phaseSeconds(game, 'night');
-
-      io.to(roomCode).emit('phase:changed', { phase: 'night', secondsRemaining: adminStartSeconds });
-      broadcastAdminPlayerUpdate(roomCode);
-      broadcastAdminPhaseUpdate(roomCode, 'night', adminStartSeconds);
       console.log(`[Admin] Game started in room ${roomCode}`);
     });
 
@@ -193,14 +158,17 @@ export function registerAdminHandlers() {
       const roomCode: string | undefined = socket.data.roomCode;
       if (!roomCode) { socket.emit('error', { message: 'Not watching a room' }); return; }
 
-      // No side won: phones say the moderator ended it, and still show who was what
-      io.to(roomCode).emit('game:ended', {
+      const game = gameManager.getGame(roomCode);
+      if (!game) return;
+      // No side won: phones say the moderator ended it, and still show who was what.
+      // This is the last view they get: the game is deleted below.
+      announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
+      pushViews(roomCode, {
         winner: 'none',
         winReason: 'The moderator ended the game.',
         endedByModerator: true,
-        players: gameManager.getGame(roomCode)?.phase === 'lobby' ? [] : playerSummary(roomCode),
+        players: game.phase === 'lobby' ? [] : playerSummary(game),
       });
-      announce(roomCode, '🛑 The game has been ended by the moderator.', 'system');
 
       const watchers = adminWatchers.get(roomCode);
       adminWatchers.delete(roomCode);
@@ -238,15 +206,7 @@ export function registerAdminHandlers() {
       const player = gameManager.addPlayer(roomCode, botId, name);
       if (!player) { socket.emit('error', { message: 'Could not add player' }); return; }
 
-      io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
-
-      const entry = gameManager.pushAdminLog(roomCode, {
-        category: 'system',
-        senderName: '🎭 Admin',
-        text: `Added player: ${player.name}`,
-      });
-      if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-      broadcastAdminPlayerUpdate(roomCode);
+      logForAdmins(roomCode, 'system', '🎭 Admin', `Added player: ${player.name}`);
       console.log(`[Admin] Added player ${player.name} (${botId})`);
     });
 
@@ -264,24 +224,10 @@ export function registerAdminHandlers() {
       dropRejoinTokens(roomCode, data.playerId);
       forgetPlayerChoices(roomCode, data.playerId);
 
-      if (!data.playerId.startsWith('bot_')) {
-        const playerSocket = io.sockets.sockets.get(data.playerId);
-        if (playerSocket) {
-          playerSocket.leave(roomCode);
-          playerSocket.data.roomCode = undefined;
-          playerSocket.emit('player:removed', { message: 'You have been removed from the game by the moderator.' });
-        }
-      }
-
-      io.to(roomCode).emit('lobby:updated', { players: publicPlayers(roomCode) });
-
-      const entry = gameManager.pushAdminLog(roomCode, {
-        category: 'system',
-        senderName: '🎭 Admin',
-        text: `Removed player: ${player.name}`,
-      });
-      if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-      broadcastAdminPlayerUpdate(roomCode);
+      detachPlayer(roomCode, data.playerId, 'You have been removed from the game by the moderator.');
+      logForAdmins(roomCode, 'system', '🎭 Admin', `Removed player: ${player.name}`);
+      // The removal can decide the game
+      if (gameManager.checkWinNow(roomCode)) finishGame(roomCode);
     });
 
     socket.on('admin:renamePlayer', (data: { playerId: string; newName: string }) => {
@@ -295,13 +241,7 @@ export function registerAdminHandlers() {
       const renamed = gameManager.renamePlayer(roomCode, data.playerId, newName);
       if (!renamed) { socket.emit('error', { message: 'Player not found' }); return; }
 
-      const entry = gameManager.pushAdminLog(roomCode, {
-        category: 'system',
-        senderName: '🎭 Admin',
-        text: `Renamed "${oldName}" → "${renamed.name}"`,
-      });
-      if (entry) emitToAdmins(roomCode, 'admin:logEntry', entry);
-      broadcastAdminPlayerUpdate(roomCode);
+      logForAdmins(roomCode, 'system', '🎭 Admin', `Renamed "${oldName}" → "${renamed.name}"`);
     });
 
     socket.on('admin:castVote', (data: { voterId: string; targetId: string }) => {
@@ -339,12 +279,7 @@ export function registerAdminHandlers() {
           const target = eligible[Math.floor(Math.random() * eligible.length)];
           if (!applyNightAction(roomCode, actor.id, target.id, '[Auto] ')) actorCount++;
         }
-        const summary = gameManager.pushAdminLog(roomCode, {
-          category: 'system',
-          senderName: '🎲 Admin',
-          text: `Randomized night actions for ${actorCount} player(s)`,
-        });
-        if (summary) emitToAdmins(roomCode, 'admin:logEntry', summary);
+        logForAdmins(roomCode, 'system', '🎲 Admin', `Randomized night actions for ${actorCount} player(s)`);
 
       } else if (game.phase === 'day') {
         let voteCount = 0;
@@ -354,13 +289,7 @@ export function registerAdminHandlers() {
           const target = eligible[Math.floor(Math.random() * eligible.length)];
           if (!gameManager.castVote(roomCode, voter.id, target.id)) voteCount++;
         }
-        broadcastVotes(roomCode);
-        const summary = gameManager.pushAdminLog(roomCode, {
-          category: 'system',
-          senderName: '🎲 Admin',
-          text: `Randomized day votes for ${voteCount} player(s)`,
-        });
-        if (summary) emitToAdmins(roomCode, 'admin:logEntry', summary);
+        logForAdmins(roomCode, 'system', '🎲 Admin', `Randomized day votes for ${voteCount} player(s)`);
       }
     });
 
@@ -378,8 +307,6 @@ export function registerAdminHandlers() {
       data.seconds = Math.round(seconds);
 
       gameManager.updateTimer(roomCode, data.seconds);
-      io.to(roomCode).emit('phase:changed', { phase: game.phase, secondsRemaining: data.seconds });
-      broadcastAdminPhaseUpdate(roomCode, game.phase, data.seconds);
       console.log(`[Admin] Timer set to ${data.seconds}s in room ${roomCode}`);
     });
 

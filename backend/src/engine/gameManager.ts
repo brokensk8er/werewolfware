@@ -74,6 +74,7 @@ export class GameManager {
       alive: true,
       connected: true,
       rejoinToken: randomUUID(),
+      notes: [],
     };
     game.players.set(playerId, player);
     return player;
@@ -86,45 +87,6 @@ export class GameManager {
     if (!player) return null;
     player.connected = connected;
     return player;
-  }
-
-  reassignPlayerId(roomCode: string, oldId: string, newId: string): boolean {
-    if (oldId === newId) return true;
-    const game = this.games.get(roomCode);
-    if (!game) return false;
-    const player = game.players.get(oldId);
-    if (!player) return false;
-
-    player.id = newId;
-    game.players.delete(oldId);
-    game.players.set(newId, player);
-
-    // dayVotes: update voter keys and target values
-    const voteTarget = game.dayVotes.get(oldId);
-    if (voteTarget !== undefined) { game.dayVotes.delete(oldId); game.dayVotes.set(newId, voteTarget); }
-    for (const [vid, tid] of game.dayVotes) {
-      if (tid === oldId) game.dayVotes.set(vid, newId);
-    }
-
-    // nightActions: update actor keys and target values
-    const action = game.nightActions.get(oldId);
-    if (action) { action.playerId = newId; game.nightActions.delete(oldId); game.nightActions.set(newId, action); }
-    for (const [, act] of game.nightActions) {
-      if (act.targetId === oldId) act.targetId = newId;
-    }
-
-    // protectedPlayers
-    if (game.protectedPlayers.has(oldId)) { game.protectedPlayers.delete(oldId); game.protectedPlayers.add(newId); }
-
-    // seerInvestigations: update seer keys and target values
-    const inv = game.seerInvestigations.get(oldId);
-    if (inv) { inv.seerId = newId; game.seerInvestigations.delete(oldId); game.seerInvestigations.set(newId, inv); }
-    for (const [, investigation] of game.seerInvestigations) {
-      if (investigation.targetId === oldId) investigation.targetId = newId;
-    }
-
-    if (game.hostId === oldId) game.hostId = newId;
-    return true;
   }
 
   /** Seconds for a phase: the moderator's timer if they set one, else the default. */
@@ -340,32 +302,10 @@ export class GameManager {
     this.games.delete(roomCode);
   }
 
-  getFullSnapshot(roomCode: string): any {
-    const game = this.games.get(roomCode);
-    if (!game) return null;
-    const secondsRemaining = game.phaseEndsAt
-      ? Math.max(0, Math.round((game.phaseEndsAt.getTime() - Date.now()) / 1000))
-      : 0;
-    return {
-      roomCode: game.roomCode,
-      phase: game.phase,
-      secondsRemaining,
-      players: Array.from(game.players.values()).map((p) => ({
-        id: p.id,
-        name: p.name,
-        role: p.role,
-        team: p.team,
-        alive: p.alive,
-        connected: p.connected,
-      })),
-      votes: Array.from(game.dayVotes.entries()).map(([voterId, targetId]) => ({
-        voterId,
-        voterName: game.players.get(voterId)?.name || 'Unknown',
-        targetId,
-        targetName: game.players.get(targetId)?.name || 'Unknown',
-      })),
-      log: game.adminLog,
-    };
+  /** Seconds left in the current phase (0 when no countdown is running). */
+  secondsRemaining(game: GameState): number {
+    if (!game.phaseEndsAt || (game.phase !== 'night' && game.phase !== 'day')) return 0;
+    return Math.max(0, Math.round((game.phaseEndsAt.getTime() - Date.now()) / 1000));
   }
 
   changePlayerRole(roomCode: string, playerId: string, newRole: Role): Player | null {
@@ -375,6 +315,9 @@ export class GameManager {
     if (!player) return null;
     player.role = newRole;
     player.team = newRole.team;
+    // The Mayor is public and carries the title in their name; it comes and goes with the role
+    const baseName = player.name.replace(/^Mayor /, '');
+    player.name = newRole.id === 'mayor' ? `Mayor ${baseName}` : baseName;
     return player;
   }
 
@@ -403,26 +346,5 @@ export class GameManager {
     game.customPhaseDuration = seconds;
     game.phaseEndsAt = new Date(Date.now() + seconds * 1000);
     return true;
-  }
-
-  getSnapshot(roomCode: string, playerId?: string): any {
-    const game = this.games.get(roomCode);
-    if (!game) return null;
-
-    const playerList = Array.from(game.players.values()).map((p) => ({
-      id: p.id,
-      name: p.name,
-      alive: p.alive,
-      role: playerId === p.id ? p.role : undefined, // only reveal own role
-    }));
-
-    return {
-      roomCode: game.roomCode,
-      phase: game.phase,
-      players: playerList,
-      dayNumber: game.dayNumber,
-      nightNumber: game.nightNumber,
-      winner: game.winner,
-    };
   }
 }
