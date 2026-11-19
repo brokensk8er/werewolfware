@@ -1,7 +1,7 @@
 # Werewolfware — TODO & Roadmap
 
 **Last audited:** 2026-11-13 — every source file read, then a 30-player game run at phone size (375 x 667, touch) against a local copy. Findings and the screen designs are in the design proposal (a Claude doc titled "Werewolfware: Mobile and Admin Design Proposal").
-**Last changed:** 2026-11-18 — Pass A2 (rule fixes and the deploy gate) merged. `tests/phone-check`: 38 rule checks and 49 phone-size checks pass, and every deploy now waits for them.
+**Last changed:** 2026-11-19 — Pass B (one view per phone, permanent player ids, server split) merged. `tests/phone-check`: 51 rule checks and 65 phone-size checks pass, and every deploy waits for them.
 **Use case:** one in-person game per year, 10–30 players, run by a moderator from the admin panel with the app as an *aid*. The project sits mothballed between uses.
 **Goal:** it works on the night, it is cheap to dust off a year later, and a new role or game mode is *one file + one registry line*.
 
@@ -89,17 +89,30 @@ Each line is covered by `tests/phone-check/rules.cjs` or `verify.cjs`.
 - [x] **Deploy gate.** `.github/workflows/check.yml` type-checks the server and runs `tests/phone-check` (one retry for a slow runner). Both deploys run it first and deploy only if it passes. It also runs on every pull request and branch push.
 - [x] **Node 24** in both Dockerfiles and the workflows (Node 18 was past end-of-life).
 
+## Pass B — One view per phone  *(DONE 2026-11-19)*
+
+Covered by `tests/phone-check` (rules.cjs, and verify.cjs game 3, which refreshes every phone at five points in a game and compares the screen before and after).
+
+- [x] **`server.ts` split** into `handlers/{player,admin}.ts`, `state.ts`, `view.ts`, `actions.ts`, `messaging.ts`, `helpers.ts`, `adminAuth.ts`, `flavor.ts`. The split itself was a verbatim move with all checks passing *(P2-01)*.
+- [x] **Permanent player id** *(P2-00)*. Set when a player joins (a UUID), never the connection id. Each connection joins a room named after the id, so a reconnect only attaches the new connection; `reassignPlayerId` and its re-keying are gone. A player counts as offline only when their last connection closes.
+- [x] **One view per phone** (`game:view`, built in `view.ts`): phase, round, timer, your role, your pack (werewolves, D6), your vote, your night choice, your notes, the player list, the end result. It carries only what that player may know. `guardSocket` sends fresh views to every phone and moderator after every handled event, so no handler has to remember who to tell.
+- [x] **The pages redraw from the latest view.** A refresh, a reconnect and a normal update take the same path. The moderator panel likewise redraws from `admin:view` (the log still streams).
+- [x] **Private notes on the server**, per player: the Seer's results survive a refresh and show on the role card *(audit item 11)*.
+- [x] **Fixed:** a role change mid-game reaches the phone at once *(item 8)*; the moderator panel shows roles after a reload *(item 13)*; the Mayor title follows the role *(item 8)*; announcements are kept in the chat history; werewolves see their pack on the role card (D6, ahead of the Pass C screens); villagers get a waiting message at night (D5, first draft).
+- [x] **Fixed a Pass A2 bug:** after the first day every later phase ran 60 seconds, nights included (the day length was being saved as a custom timer).
+- [x] **Moderator panel** marks who has chosen this phase (✓) and who is offline.
+
 ### What comes next (from the design proposal)
 
 | Pass | Work | Where it lives below |
 |------|------|----------------------|
-| B. One snapshot per phone | Server sends each player their whole view after every change; the page redraws from it; stable player id | New, absorbs P2-00 |
+| B. One snapshot per phone | **Done 2026-11-19** (above) | — |
 | C. Player phone | New screens: one job per phase, role hidden until held, confirm before a choice counts, day/night colour themes | New. Decisions D5–D8 recorded |
 | D. Moderator panel | Setup with role counts, Run with a result preview, player sheet, bring-back and undo | New |
 | E. Rules and roles | Night-action pipeline, Hunter, more roles, engine unit tests, payload schemas | Rest of Pass 1, Pass 2, Pass 3 |
 | F. Before the event | Fly-only hosting (D12), load script, real-phone rehearsal, runbook | Pass 4 |
 
-Still open from the audit: Change Role mid-game leaves the phone's night screen stale until the phase changes; a refresh loses private results (seer findings); roles show as a dash after a moderator reload; low text contrast. All are covered by passes B–D.
+Still open from the audit: low text contrast (item 18), and the page layout itself (Pass C).
 
 ---
 
@@ -137,8 +150,8 @@ Do in this order. Tests first so Pass 2's refactor has a net.
 
 Behavior must stay identical to Pass 1's tests until P2-03 lands. Order matters.
 
-- [ ] **P2-00 Stable player id.** Today a player's id *is* their socket id, and `reassignPlayerId` re-keys five structures by hand on every rejoin (`dayVotes`, `nightActions`, `protectedPlayers`, `seerInvestigations`, `hostId`). Every future role adds more state to re-key, and a missed one breaks silently after a reconnect. Give players a stable UUID `playerId`; keep `socketId` as a mutable field that only the transport layer reads. Do this *before* adding roles.
-- [ ] **P2-01 Split `server.ts`** into `handlers/{lobby,game,chat,admin}.ts` plus `helpers/{announce,adminEmit}.ts`. Pure move, tests stay green. This also cuts tokens per future edit.
+- [x] **P2-00 Stable player id.** *(Pass B)* Today a player's id *is* their socket id, and `reassignPlayerId` re-keys five structures by hand on every rejoin (`dayVotes`, `nightActions`, `protectedPlayers`, `seerInvestigations`, `hostId`). Every future role adds more state to re-key, and a missed one breaks silently after a reconnect. Give players a stable UUID `playerId`; keep `socketId` as a mutable field that only the transport layer reads. Do this *before* adding roles.
+- [x] **P2-01 Split `server.ts`** *(Pass B; the layout differs slightly from the one proposed here)* into `handlers/{lobby,game,chat,admin}.ts` plus `helpers/{announce,adminEmit}.ts`. Pure move, tests stay green. This also cuts tokens per future edit.
 - [ ] **P2-02 One role registry.** `roles/index.ts` exports `ROLES: Record<string, Role>`. `ClassicMode.getRoles()` and `admin:changeRole` both read it (kills `ROLE_REGISTRY: Record<string, any>` in `server.ts`).
 - [ ] **P2-03 Night-action pipeline.** Give `Role` a `nightPriority` and move behavior out of `resolveNight`'s `if (role.id === ...)` chain into the role files. Engine sorts by priority (block → protect → kill → investigate) and passes a context (`game`, `actor`, `target`, `effects`). Effects (kill / protect / block / reveal / message) are collected, then applied once. Werewolf, Doctor and Seer become the first three implementations.
 - [ ] **P2-04 Hooks for the rest.** `voteWeight?()` (Mayor's double vote leaves `resolveDay`), `onAssign?()` / a `publicTitle` (Mayor's "Mayor " name prefix leaves `startGame`, and `admin:changeRole` stops leaving a stale prefix), and actually call `onDeath` for every death path (night, vote, admin eliminate). (The win check after `admin:eliminate` was added in Pass A2.)

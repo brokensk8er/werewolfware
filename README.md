@@ -24,8 +24,18 @@ A real-time multiplayer Werewolf/Mafia game playable in a browser. Built with No
 │   │   │   ├── seer.ts              # Seer with night investigation
 │   │   │   └── doctor.ts            # Doctor with night protection
 │   │   ├── gamemodes/
-│   │   │   └── classic.ts           # Classic mode (5-20 players)
-│   │   ├── server.ts                # Express + Socket.io entry point
+│   │   │   └── classic.ts           # Classic mode (5-30 players)
+│   │   ├── handlers/
+│   │   │   ├── player.ts            # Socket handlers for phones
+│   │   │   └── admin.ts             # Socket handlers for the moderator panel
+│   │   ├── server.ts                # Entry point: static files, health check, boot
+│   │   ├── state.ts                 # Servers, game manager, shared maps
+│   │   ├── view.ts                  # Builds each phone's view and the moderator's
+│   │   ├── actions.ts               # Votes, night choices, phase resolution
+│   │   ├── messaging.ts             # Chat, announcements, the moderator log
+│   │   ├── helpers.ts               # Names, chat pacing, handler guard
+│   │   ├── adminAuth.ts             # Moderator sign-in (Firebase)
+│   │   ├── flavor.ts                # Narration lines
 │   │   └── types.ts                 # Shared interfaces
 │   ├── package.json
 │   ├── tsconfig.json
@@ -146,15 +156,18 @@ Modes are lazy-loaded per game; add a new mode without touching the engine.
 
 ### Server → Client
 
+State reaches a phone only through `game:view`, sent after every change. The phone
+redraws from the latest view alone, so a refresh or reconnect is the same as any other
+update. See `PlayerView` in `backend/src/types.ts` and `backend/src/view.ts`.
+
 ```typescript
-'lobby:joined'      { roomCode: string; playerId: string; token: string; playerName: string }
-'lobby:updated'     { players: Array<{id, name, alive, connected}> }  // lobby and mid-game
-'game:reconnected'  { playerId, playerName, role, players, phase, secondsRemaining, recentMessages }
-'player:removed'    { message: string }
-'game:started'      { playerId: string; role: Role; players: Array }
-'phase:changed'     { phase: GamePhase; secondsRemaining: number }
-'game:ended'        { winner: PlayerTeam; winReason: string }
-'error'             { message: string }
+'session'          { playerId: string; token: string }   // after a join or rejoin; keep the token
+'game:view'        PlayerView   // phase, timer, you (role, pack, vote, night choice, notes), players, end result
+'chat:history'     { messages: ChatMessage[] }           // once after a rejoin
+'chat:message'     ChatMessage
+'ghost:message'    ChatMessage                           // dead players only
+'player:removed'   { message: string }
+'error'            { message: string }
 ```
 
 ## Deployment

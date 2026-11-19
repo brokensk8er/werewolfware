@@ -1,6 +1,6 @@
 # Werewolf Game — Project State Summary
 
-**Last Updated:** November 18, 2026 (Pass A2 merged; roadmap in `TODO.md`)
+**Last Updated:** November 19, 2026 (Pass B merged; roadmap in `TODO.md`)
 **Current Branch:** `main`
 
 ## What's Done ✅
@@ -39,11 +39,11 @@
 
 ## What's TODO
 
-**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-13; Pass A merged 2026-11-15, Pass A2 on 2026-11-18). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
+**Canonical roadmap: [`TODO.md`](TODO.md)** (audit of 2026-11-13; Pass A merged 2026-11-15, A2 on 2026-11-18, B on 2026-11-19). Use case: one in-person, moderator-run game per year (10–30 players), app as an aid; mothballed between uses (decision D1). Summary:
 
 - **Pass A — Night-stoppers:** done 2026-11-15.
 - **Pass A2 — Rule fixes and deploy gate:** done 2026-11-18.
-- **Pass B — One snapshot per phone:** the server sends each player their whole view; stable player id.
+- **Pass B — One view per phone:** done 2026-11-19.
 - **Pass C — Player phone:** new screens, one job per phase, role hidden until held.
 - **Pass D — Moderator panel:** role setup, result preview, player sheet, bring-back and undo.
 - **Pass E — Rules and roles:** night-action pipeline, Hunter, more roles, engine unit tests.
@@ -55,7 +55,11 @@ Host buttons on player phones, phones that drop and reconnect, the moderator lis
 
 ### Fixed on 2026-11-18 (Pass A2)
 
-One werewolf kill per night; vote ties eliminate nobody; every vote and night choice is checked; chat limits; votes hidden from phones; the Seer learns the team only; about one werewolf per six players with a 30-player cap; Eliminate checks for a win; End Game no longer announces a village win; Mayor in Change Role; the moderator log is kept at game end; Node 24. Every deploy now waits for `check.yml` (type check plus `tests/phone-check`: 38 rule checks, 49 phone-size checks).
+One werewolf kill per night; vote ties eliminate nobody; every vote and night choice is checked; chat limits; votes hidden from phones; the Seer learns the team only; about one werewolf per six players with a 30-player cap; Eliminate checks for a win; End Game no longer announces a village win; Mayor in Change Role; the moderator log is kept at game end; Node 24. Every deploy now waits for `check.yml` (type check plus `tests/phone-check`: 38 rule checks and 49 phone-size checks at the time).
+
+### Fixed on 2026-11-19 (Pass B)
+
+Each phone now gets one complete view from the server after every change and redraws from it, so a refresh or reconnect always brings back the same screen. Player ids are permanent. The Seer's results are kept on the server and survive a refresh; a role change reaches the phone at once; the moderator panel shows roles after a reload; nights are 30 seconds again after the first day; the Mayor title follows the role. `server.ts` is split into smaller files.
 
 ### Decisions (2026-11-16, details in TODO.md)
 
@@ -63,10 +67,7 @@ In-person, moderator-run (D1). Only roles with a night action choose; everyone e
 
 ### Known gaps (details in TODO.md and the design proposal)
 
-- Change Role mid-game leaves the phone's night screen stale until the phase changes.
-- A page refresh loses private results (seer findings). Roles show as a dash after a moderator reload.
-- The player screens are still a desktop layout on a phone: long scrolling pages, role always visible, low contrast. The redesign is passes B–D.
-- Player ids are still socket ids, so every reconnect changes them. The pages cope; a stable id is Pass B.
+- The player screens are still a desktop layout on a phone: long scrolling pages, role always visible, low contrast. The redesign is passes C–D.
 - Pages still load from GitHub Pages and the socket.io CDN until Fly-only hosting (D12) lands.
 - Timers are display-only (by design under D1); the moderator advances every phase.
 - README's "no engine changes needed for new roles" is not yet true: night/day logic is hard-coded by role id.
@@ -94,8 +95,12 @@ werewolfware/
 │   │   │   ├── seer.ts
 │   │   │   └── doctor.ts
 │   │   ├── gamemodes/
-│   │   │   └── classic.ts          — 5-20 players, balanced roles
-│   │   ├── server.ts               — Express + Socket.io
+│   │   │   └── classic.ts          — 5-30 players, about one werewolf per six
+│   │   ├── handlers/player.ts      — Socket handlers for phones
+│   │   ├── handlers/admin.ts       — Socket handlers for the moderator panel
+│   │   ├── server.ts               — Entry point: static files, health check, boot
+│   │   ├── view.ts                 — Each phone's view and the moderator's, sent after every change
+│   │   ├── actions.ts, messaging.ts, helpers.ts, state.ts, adminAuth.ts, flavor.ts
 │   │   └── types.ts                — Shared interfaces
 │   ├── package.json
 │   ├── tsconfig.json
@@ -169,7 +174,7 @@ npm start
 
 ### Change Game Timing
 - Edit `backend/src/engine/phaseManager.ts` → `getPhaseDuration()`
-- Or `backend/src/server.ts` → `phaseEndsAt = Date.now() + <ms>`
+- Or set a timer from the moderator panel during a game (it applies to the later phases too)
 
 ### Test Phase Advancement Without Timer
 - Host clicks "Advance Phase" button (manual)

@@ -107,7 +107,8 @@ To set it: `Get-Content "path\to\key.json" -Raw | fly secrets set FIREBASE_SERVI
 ```
 backend/
   src/
-    server.ts          — Main Express + Socket.io server. All socket events here.
+    server.ts          — Entry point. Socket events live in handlers/player.ts and handlers/admin.ts.
+    view.ts            — Builds each phone's view and the moderator's; sent after every handled event.
     engine/
       gameManager.ts   — Game state CRUD. getActiveRoomCode() returns the single active game.
       phaseManager.ts  — Phase transition logic
@@ -156,10 +157,8 @@ Players cannot start or advance a game. `game:start`, `game:advancePhase`, `game
 |---|---|---|
 | `admin:authed` | `{ uid, roomCode? }` | Auth confirmed |
 | `admin:noGame` | — | No active game exists |
-| `admin:state` | `{ players, phase, secondsRemaining, votes, log }` | Full game snapshot |
-| `admin:playerUpdate` | `{ players }` | Player list changed |
-| `admin:phaseUpdate` | `{ phase, secondsRemaining }` | Phase/timer changed |
-| `admin:voteUpdate` | `{ votes }` | Vote tally changed |
+| `admin:state` | `{ log }` | The full log, once, when the panel starts watching |
+| `admin:view` | `{ phase, round, secondsRemaining, players, votes }` | Everything else; sent after every change |
 | `admin:logEntry` | `{ category, senderName, text, meta, timestamp }` | New log entry |
 
 ---
