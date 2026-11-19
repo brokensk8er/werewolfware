@@ -27,9 +27,8 @@ const admin = {
   players: [], phase: 'lobby', errors: [], log: [], clearLogs: 0, phaseSeconds: null,
 };
 function attachAdmin(sock) {
-  sock.on('admin:playerUpdate', (d) => (admin.players = d.players));
-  sock.on('admin:state', (d) => { admin.players = d.players; admin.phase = d.phase; admin.log = d.log.map((e) => e.text); });
-  sock.on('admin:phaseUpdate', (d) => { admin.phase = d.phase; admin.phaseSeconds = d.secondsRemaining; });
+  sock.on('admin:view', (v) => { admin.players = v.players; admin.phase = v.phase; admin.phaseSeconds = v.secondsRemaining; });
+  sock.on('admin:state', (d) => { admin.log = d.log.map((e) => e.text); });
   sock.on('admin:logEntry', (e) => admin.log.push(e.text));
   sock.on('admin:clearLog', () => admin.clearLogs++);
   sock.on('admin:noGame', () => { admin.phase = 'none'; admin.players = []; });
@@ -52,6 +51,7 @@ async function phone(name) {
   return s;
 }
 const events = (s, ev) => s.got.filter(([e]) => e === ev).map(([, d]) => d);
+const lastView = (s) => events(s, 'game:view').at(-1);
 const errorsOf = (s) => events(s, 'error').map((d) => d.message);
 
 let A; // admin socket
@@ -84,7 +84,10 @@ async function main() {
 
   // ═══ Lobby: names, tokens, cap, role mix (decision 6) ═══
   let ph = await newGame(1, ['Alex']);
-  check('rejoin token is a random UUID', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(events(ph.Alex, 'lobby:joined')[0]?.token || ''));
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  check('rejoin token is a random UUID', uuid.test(events(ph.Alex, 'session')[0]?.token || ''));
+  check('player id is a random UUID, not the connection id', uuid.test(events(ph.Alex, 'session')[0]?.playerId || '') && events(ph.Alex, 'session')[0].playerId !== ph.Alex.id);
+  check('a phone gets its view on joining', lastView(ph.Alex)?.phase === 'lobby' && lastView(ph.Alex)?.you.name === 'Alex' && lastView(ph.Alex)?.you.role === null);
   const odd = await phone('alex'); sockets.push(odd);
   const num = io(BASE, { transports: ['websocket'], reconnection: false }); num.got = []; num.onAny((e, d) => num.got.push([e, d])); sockets.push(num);
   await new Promise((r) => num.on('connect', r));
@@ -139,8 +142,8 @@ async function main() {
   ph.Sera.emit('night:action', { targetId: idOf('W1') }); await sleep(150);
   await advance();
   check('three werewolves kill one player: the one most of them chose', JSON.stringify(dead()) === JSON.stringify(['B6']), dead());
-  const seen = events(ph.Sera, 'seer:investigation')[0];
-  check('the Seer learns the team, not the role (decision 5)', seen && seen.targetName === 'W1' && seen.team === 'werewolf' && seen.role === undefined, seen);
+  const seen = lastView(ph.Sera)?.you.notes.at(-1);
+  check('the Seer learns the team, not the role (decision 5)', seen && seen.at === 'Night 1' && seen.text === 'W1 is on the WEREWOLF team.', seen);
   check('the Seer\'s message names the team', events(ph.Sera, 'chat:message').some((m) => /W1 is on the WEREWOLF team/.test(m.text)));
   check('day uses the default 60-second timer', admin.phase === 'day' && admin.phaseSeconds === 60, { phase: admin.phase, s: admin.phaseSeconds });
 
@@ -156,19 +159,42 @@ async function main() {
 
   ph.Vic.got.length = 0;
   ph.Vic.emit('vote:cast', { targetId: idOf('W2') }); await sleep(150);
-  check('a phone is told its own vote was recorded', events(ph.Vic, 'vote:recorded').at(-1)?.targetName === 'W2');
+  check('a phone\'s view shows its own recorded vote', lastView(ph.Vic)?.you.voteId === idOf('W2'));
   await vote('Vic', 'W3');
-  check('a vote the moderator casts reaches that player\'s phone', events(ph.Vic, 'vote:recorded').at(-1)?.targetName === 'W3');
+  check('a vote the moderator casts shows on that player\'s phone', lastView(ph.Vic)?.you.voteId === idOf('W3'));
+  check('the moderator sees who has voted', pl('Vic')?.acted === true && pl('B9')?.acted === false);
   await vote('Sera', 'W1'); await vote('Doc', 'W1');
-  check('phones never receive who voted for whom (decision 4)', events(ph.Vic, 'vote:updated').length === 0 && events(ph.Sera, 'vote:updated').length === 0);
+  const viewsJson = JSON.stringify([...events(ph.Vic, 'game:view'), ...events(ph.Sera, 'game:view')]);
+  check('phones never receive who voted for whom (decision 4)', !viewsJson.includes('voterId') && lastView(ph.Sera)?.you.voteId === idOf('W1'));
   // tally now: W3 1 (Vic), W1 2 (Sera, Doc); add one for W3 to tie at 2-2
   await vote('B7', 'W3');
   await advance();
   check('a tied vote eliminates nobody (D3)', dead().length === 1 && admin.log.some((t) => /tied between/.test(t) && /No one is eliminated/.test(t)), { dead: dead(), log: admin.log.slice(-3) });
+  check('night 2 is 30 seconds again (the day\'s 60 no longer carries over)', admin.phase === 'night' && admin.phaseSeconds === 30, { phase: admin.phase, s: admin.phaseSeconds });
+
+  // ═══ Pass B: refresh and reconnect restore everything; role changes redraw at once ═══
+  const seraToken = events(ph.Sera, 'session')[0].token;
+  const seraId = events(ph.Sera, 'session')[0].playerId;
+  const seraNotes = JSON.stringify(lastView(ph.Sera).you.notes);
+  ph.Sera.close(); await sleep(300);
+  check('a phone that closes shows as offline to the moderator', pl('Sera')?.connected === false);
+  const sera2 = io(BASE, { transports: ['websocket'], reconnection: false }); sera2.got = []; sera2.onAny((e, d) => sera2.got.push([e, d])); sockets.push(sera2);
+  await new Promise((r) => sera2.on('connect', r));
+  sera2.emit('game:rejoin', { token: seraToken }); await sleep(250);
+  const v2 = lastView(sera2);
+  check('after a refresh the phone is the same player, with role and notes restored', v2?.you.id === seraId && v2.you.role?.id === 'seer' && JSON.stringify(v2.you.notes) === seraNotes && v2.phase === 'night', v2 && { id: v2.you.id === seraId, role: v2.you.role?.id, notes: v2.you.notes });
+  check('after a refresh the phone gets the recent chat, announcements included', (events(sera2, 'chat:history')[0]?.messages || []).some((m) => /tied between/.test(m.text)));
+  check('the moderator sees the refreshed phone as connected again', pl('Sera')?.connected === true);
+  ph.Sera = sera2;
+  A.emit('admin:changeRole', { playerId: idOf('Vic'), roleId: 'seer' }); await sleep(200);
+  const vv = lastView(ph.Vic);
+  check('a role change mid-night reaches the phone at once', vv?.you.role?.id === 'seer' && vv.you.role.hasNightAction === true && vv.phase === 'night', vv?.you.role);
+  A.emit('admin:changeRole', { playerId: idOf('Vic'), roleId: 'villager' }); await sleep(150);
 
   // Mayor counts twice: Mayor -> W1 (2 votes) beats one villager -> W2 (1 vote)
   await advance(); // the tie moved the game to night; no actions, so back to day
   A.emit('admin:changeRole', { playerId: idOf('B8'), roleId: 'mayor' }); await sleep(150);
+  check('a new Mayor gets the title in their name', pl('B8')?.name === 'Mayor B8', pl('B8')?.name);
   await vote('B8', 'W1'); await vote('B9', 'W2');
   await advance();
   check('the Mayor\'s vote counts twice', pl('W1') && !pl('W1').alive && pl('W2').alive, dead());
@@ -189,8 +215,8 @@ async function main() {
   const clearsBefore = admin.clearLogs;
   for (const w of ['W2', 'W3']) A.emit('admin:eliminate', { playerId: idOf(w) });
   await sleep(400);
-  const ended = events(ph.Vic, 'game:ended').at(-1);
-  check('eliminating the last werewolf ends the game', admin.phase === 'ended' && ended?.winner === 'village', { phase: admin.phase, ended });
+  const ended = lastView(ph.Vic)?.ended;
+  check('eliminating the last werewolf ends the game', admin.phase === 'ended' && lastView(ph.Vic)?.phase === 'ended' && ended?.winner === 'village', { phase: admin.phase, ended });
   check('the moderator\'s log is kept at the end', admin.clearLogs === clearsBefore && admin.log.length > 10, { clears: admin.clearLogs - clearsBefore, n: admin.log.length });
   A.emit('admin:changeRole', { playerId: idOf('Vic'), roleId: 'seer' }); await sleep(120);
   check('Change Role refused after the end', /game is over/.test(lastError()), lastError());
@@ -202,8 +228,17 @@ async function main() {
   ph = await newGame(6, ['Pat']);
   await start();
   A.emit('admin:endGame'); await sleep(300);
-  const e = events(ph.Pat, 'game:ended').at(-1);
+  const e = lastView(ph.Pat)?.ended;
   check('End Game says the moderator ended it, not a village win', e && e.winner === 'none' && e.endedByModerator === true && e.players.length === 6, e);
+
+  // ═══ Werewolves see their pack (D6); nobody else learns roles ═══
+  ph = await newGame(6, ['Wa', 'Wb', 'Vc']);
+  await start();
+  await setRoles({ Wa: 'werewolf', Wb: 'werewolf' });
+  const wa = lastView(ph.Wa), vc = lastView(ph.Vc);
+  check('nobody keeps the Mayor title after a role change', admin.players.every((p) => !p.name.startsWith('Mayor ')), admin.players.map((p) => p.name));
+  check('a werewolf\'s view names the rest of the pack', JSON.stringify(wa?.you.pack) === '["Wb"]', wa?.you.pack);
+  check('a villager\'s view names no pack and no one else\'s role', vc?.you.pack.length === 0 && !JSON.stringify(vc).includes('"team":"werewolf"') && vc.players.every((p) => Object.keys(p).sort().join() === 'alive,connected,id,name'), vc?.you.pack);
 
   // ═══ Server survived everything ═══
   check('server still running', serverExit === null);

@@ -23,10 +23,7 @@ async function waitUp(port) { for (let i = 0; i < 80; i++) { try { if ((await fe
 async function adminDriver(port) {
   const a = io(`http://localhost:${port}/admin`, { transports: ['websocket'] });
   a.players = []; a.phase = 'lobby'; a.errors = []; a.votes = []; a.log = [];
-  a.on('admin:playerUpdate', (d) => (a.players = d.players));
-  a.on('admin:state', (d) => { a.players = d.players; a.phase = d.phase; });
-  a.on('admin:phaseUpdate', (d) => (a.phase = d.phase));
-  a.on('admin:voteUpdate', (d) => (a.votes = d.votes));
+  a.on('admin:view', (v) => { a.players = v.players; a.phase = v.phase; a.votes = v.votes; });
   a.on('admin:logEntry', (e) => a.log.push(e.text));
   a.on('error', (e) => a.errors.push(e.message));
   await new Promise((r) => a.on('connect', r));
@@ -143,7 +140,8 @@ async function main() {
   await bri.evaluate(() => socket.io.engine.close());
   await bri.waitForFunction(() => socket.connected, null, { timeout: 15000 }); await sleep(900);
   const briNew = idOf('Bri');
-  check('2 after a dropped connection the server knows the phone under its new id', briNew && briNew !== briOld && (await bri.evaluate(() => socket.id)) === briNew, { changed: briNew !== briOld });
+  // Pass B: a player's id is fixed when they join, so a reconnect does not change it
+  check('2 after a dropped connection the phone keeps the same player id', briNew && briNew === briOld && (await bri.evaluate(() => view.you.id)) === briNew, { briOld, briNew });
   check('2 the drop and the return are noted for the moderator', admin.log.some((l) => /Bri lost connection/.test(l)) && admin.log.some((l) => /Bri reconnected/.test(l)));
   check('2 moderator sees the player as connected again', admin.players.find((p) => p.id === briNew)?.connected === true);
   const t2 = pickTarget(t1); await voteFor(bri, t2);
@@ -152,7 +150,7 @@ async function main() {
   await voteFor(alex, nameOnPhone('Bri'));
   check('2 other phones can still vote for the reconnected player', admin.votes.some((v) => v.targetId === briNew && v.targetName !== 'Unknown'), admin.votes.filter((v) => /Bri/.test(v.targetName)));
   check('2 Casey keeps her highlight through someone else reconnecting; no counts shown', await casey.evaluate((t) => { const sel = [...document.querySelectorAll('#vote-list .player-card.selected')].map((c) => c.firstChild.textContent); return sel.length === 1 && sel[0] === t && [...document.querySelectorAll('.vote-count-badge')].filter((b) => b.textContent).length === 0; }, t1));
-  check('4 phones receive no one else\'s votes', await casey.evaluate(() => typeof lastVotes !== 'undefined' && lastVotes.length === 0));
+  check('4 phones receive no one else\'s votes', await casey.evaluate(() => !('votes' in view) && !JSON.stringify(view).includes('voterId')));
   check('10 a player is not in their own vote list', await casey.evaluate(() => ![...document.querySelectorAll('#vote-list .player-card')].some((c) => c.dataset.playerId === gameState.playerId)));
   // drop detection while offline
   await bri.evaluate(() => { socket.io.opts.reconnection = false; socket.io.engine.close(); });
@@ -217,6 +215,76 @@ async function main() {
   let backAtJoin = false;
   for (let i = 0; i < 50 && !backAtJoin; i++) { await sleep(500); backAtJoin = await max.evaluate(() => typeof gameState !== 'undefined' && !gameState.playerId && !document.getElementById('lobby-screen').classList.contains('hidden') && document.getElementById('game-screen').classList.contains('hidden') && !localStorage.getItem('werewolf_rejoin_token')).catch(() => false); }
   check('2 after a server restart a phone returns to the join screen by itself', backAtJoin);
+
+  // ════════ Game 3 (Pass B): a refresh at any point brings back the same screen ════════
+  // Each phone's screen is reduced to a fingerprint of what is visible (except the
+  // countdown), the page is reloaded, and the fingerprint must match. Hidden panels
+  // are ignored: nobody sees them, and they are redrawn before they are shown.
+  const mod = await adminDriver(PORT);
+  mod.emit('admin:createGame'); await sleep(300);
+  const fingerprint = (page) => page.evaluate(() => {
+    const el = (id) => document.getElementById(id);
+    const shown = (e) => !!(e && (e.offsetWidth || e.offsetHeight || e.getClientRects().length));
+    const vis = (id) => shown(el(id));
+    const txt = (id) => (vis(id) ? el(id).textContent.replace(/\s+/g, ' ').trim() : '');
+    const cards = (sel) => [...document.querySelectorAll(sel)].filter(shown).map((c) => c.textContent.trim() + (c.classList.contains('selected') ? ' [chosen]' : ''));
+    return JSON.stringify({
+      screen: ['lobby-screen', 'lobby-wait-screen', 'game-screen', 'ghost-screen'].filter(vis),
+      waiting: txt('players-ul'),
+      phase: txt('phase-title'), name: txt('nameplate-name'), roleTag: txt('nameplate-role'),
+      role: txt('role-name'), pack: txt('role-pack'), notes: txt('role-notes'),
+      panels: ['day-phase', 'night-phase', 'game-ended'].filter(vis), nightText: txt('night-instruction'),
+      votes: cards('#vote-list .player-card'), targets: cards('#target-list .player-card'), players: txt('game-players-ul'),
+      ghost: [txt('ghost-nameplate-name'), txt('ghost-phase-badge'), txt('ghost-alive-list'), txt('ghost-dead-list')],
+      ghostEnded: vis('ghost-game-ended'), winner: txt('winner-title'), results: cards('#results-grid .result-card'),
+    });
+  });
+  const refreshMatches = async (label, pages) => {
+    const diffs = [];
+    for (const [name, page] of Object.entries(pages)) {
+      const before = await fingerprint(page);
+      await page.reload();
+      await page.waitForFunction(() => typeof view !== 'undefined' && view !== null, null, { timeout: 8000 }).catch(() => {});
+      await sleep(400);
+      const after = await fingerprint(page);
+      if (before !== after) diffs.push({ name, before: JSON.parse(before), after: JSON.parse(after) });
+    }
+    check(`B refresh during ${label}: every phone comes back the same`, diffs.length === 0, diffs);
+  };
+  const rae = await join(BASE, 'Rae'); const sol = await join(BASE, 'Sol'); const tam = await join(BASE, 'Tam');
+  for (const n of ['X1', 'X2', 'X3']) mod.emit('admin:addPlayer', { playerName: n });
+  await sleep(400);
+  await refreshMatches('the lobby', { rae, sol, tam });
+  mod.emit('admin:startGame'); await sleep(400);
+  const mid = (n) => mod.players.find((p) => p.name.replace(/^Mayor /, '') === n)?.id;
+  for (const p of mod.players) mod.emit('admin:changeRole', { playerId: p.id, roleId: { Rae: 'seer', Sol: 'werewolf' }[p.name.replace(/^Mayor /, '')] || 'villager' });
+  await sleep(400);
+  await refreshMatches('night 1 before anyone chooses', { rae, sol, tam });
+  check('B a role change shows on the phone without a refresh', (await rae.evaluate(() => document.getElementById('role-name').textContent)) === 'Seer' && (await rae.locator('#target-list .player-card').count()) > 0);
+  await tam.screenshot({ path: path.join(SHOTS, 'night-villager-waiting.png') });
+  check('B a villager waits at night (D5)', /Zzz/.test(await tam.evaluate(() => document.getElementById('night-instruction').textContent)) && (await tam.locator('#target-list .player-card').count()) === 0);
+  await rae.locator('#target-list .player-card', { hasText: /^Sol$/ }).tap(); await sleep(250);
+  await sol.locator('#target-list .player-card', { hasText: /^X1$/ }).tap(); await sleep(250);
+  check('B a chosen target is marked', (await sol.locator('#target-list .player-card.selected').textContent()) === 'X1');
+  await refreshMatches('night 1 after choices are made', { rae, sol, tam });
+  mod.emit('admin:forcePhase'); await sleep(500);
+  check('B the Seer\'s result is on the role card', /Night 1: Sol is on the WEREWOLF team/.test(await rae.evaluate(() => document.getElementById('role-notes').textContent)));
+  await rae.screenshot({ path: path.join(SHOTS, 'day-seer-notes.png') });
+  await tam.locator('#vote-list .player-card', { hasText: /^Sol$/ }).tap(); await sleep(250);
+  await refreshMatches('day 1 with a vote cast and a Seer result', { rae, sol, tam });
+  mod.emit('admin:eliminate', { playerId: mid('Tam') }); await sleep(3800);
+  check('B an eliminated player reaches the ghost screen', await tam.evaluate(() => !document.getElementById('ghost-screen').classList.contains('hidden')));
+  await refreshMatches('day 1 with a player dead', { rae, sol, tam });
+  // Moderator panel reload mid-game: roles must show (they used to read as a dash)
+  const M = apages['390x844'].page;
+  await M.reload(); await M.waitForSelector('#main-layout:not(.hidden)'); await sleep(600);
+  const pills = await M.evaluate(() => [...document.querySelectorAll('.role-pill')].map((e) => e.textContent));
+  check('13 moderator reload mid-game shows every role', pills.length === 6 && !pills.includes('—') && pills.includes('Seer') && pills.includes('Werewolf'), pills);
+  mod.emit('admin:eliminate', { playerId: mid('Sol') }); await sleep(3800); // Sol's death overlay plays first
+  check('B the end screen shows on the living phones', await rae.evaluate(() => !document.getElementById('game-ended').classList.contains('hidden')));
+  await refreshMatches('the end screen', { rae, sol, tam });
+  for (const p of [rae, sol, tam]) check(`B no page errors on ${await p.evaluate(() => view && view.you.name)}`, p.errors.length === 0, p.errors);
+  mod.close();
   proc.kill(); await sleep(500);
 
   // ════════ Test switch is refused on a deployed server ════════

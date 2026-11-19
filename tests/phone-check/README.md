@@ -5,10 +5,13 @@ Two checks, run in order by `npm test`:
 - **`rules.cjs`** (about 20 seconds) drives games over plain socket connections and checks
   every game rule: one werewolf kill per night, vote ties, the Mayor's double vote, the
   Seer learning a team, hidden votes, who may vote or act, chat limits, names, the
-  30-player cap and the role mix, moderator eliminations ending the game, End Game.
+  30-player cap and the role mix, moderator eliminations ending the game, End Game,
+  and that each phone's view restores everything after a refresh and reveals no one
+  else's role.
 - **`verify.cjs`** (about two minutes) plays a real 30-player game at phone size: no host
   buttons on player phones, phones that drop and reconnect, the moderator list scrolling
-  on a phone, bad events, a mid-game removal, the end screen, and a server restart.
+  on a phone, bad events, a mid-game removal, the end screen, a server restart, and
+  a refresh of every phone at five points in a game (the screen must come back the same).
 
 It runs against a throwaway local copy in `.work/`. It never touches the live server,
 and nothing here is part of a deploy.
