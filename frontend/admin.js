@@ -143,21 +143,23 @@ async function connectToGame(user) {
     currentPlayers = [];
   });
 
+  // The full log, once, when this panel starts watching a game. Replace rather
+  // than append, so a reconnect does not double it and a new game starts fresh.
   adminSocket.on('admin:state', (data) => {
-    renderPlayers(data.players);
-    renderPhase(data.phase, data.secondsRemaining);
-    renderVotes(data.votes);
-    // The full log arrives with each state: replace, so a reconnect does not
-    // double it and a new game starts with a fresh log.
     eventLog.innerHTML = '';
     data.log.forEach(appendLogEntry);
   });
 
-  adminSocket.on('admin:logEntry',     appendLogEntry);
-  adminSocket.on('admin:clearLog',     () => { eventLog.innerHTML = ''; });
-  adminSocket.on('admin:playerUpdate', (d) => renderPlayers(d.players));
-  adminSocket.on('admin:phaseUpdate',  (d) => renderPhase(d.phase, d.secondsRemaining));
-  adminSocket.on('admin:voteUpdate',   (d) => renderVotes(d.votes));
+  // Everything else on the panel is redrawn from one view, sent after every
+  // change. The phase is drawn first because the player rows depend on it.
+  adminSocket.on('admin:view', (v) => {
+    renderPhase(v.phase, v.secondsRemaining);
+    renderPlayers(v.players);
+    renderVotes(v.votes);
+  });
+
+  adminSocket.on('admin:logEntry', appendLogEntry);
+  adminSocket.on('admin:clearLog', () => { eventLog.innerHTML = ''; });
 
   adminSocket.on('error', (data) => {
     pickerError.textContent = data.message;
@@ -390,7 +392,8 @@ function renderPlayers(players) {
     card.innerHTML = `
       <div class="pc-left">
         <span class="pc-status">${p.alive ? '🟢' : '💀'}</span>
-        <span class="pc-name">${escHtml(p.name)}</span>
+        <span class="pc-name">${escHtml(p.name)}${p.connected ? '' : ' <small class="muted">(offline)</small>'}</span>
+        ${p.acted ? '<span class="pc-acted" title="Has chosen this phase">✓</span>' : ''}
       </div>
       <div class="pc-right">
         <span class="role-pill" style="--rc:${roleColor}">${escHtml(roleName)}</span>

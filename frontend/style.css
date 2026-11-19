@@ -704,3 +704,25 @@ h3 {
 .result-card.survived .result-fate {
   color: #4c4;
 }
+
+/* Role card extras: a werewolf's pack (D6) and private notes such as Seer results */
+.role-pack {
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.role-notes {
+  margin-top: 0.5rem;
+  padding-left: 1.1rem;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.role-notes li + li {
+  margin-top: 0.25rem;
+}
+
+.role-pack.hidden,
+.role-notes.hidden {
+  display: none;
+}
